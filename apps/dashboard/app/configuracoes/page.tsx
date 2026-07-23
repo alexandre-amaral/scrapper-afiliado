@@ -72,7 +72,8 @@ export default async function SettingsPage() {
                 name="minPrice"
                 min={0}
                 step="0.01"
-                defaultValue={settings.filters.minPrice}
+                placeholder="sem limite"
+                defaultValue={settings.filters.minPrice ?? ""}
                 className={inputClass}
               />
             </Field>
@@ -82,7 +83,8 @@ export default async function SettingsPage() {
                 name="maxPrice"
                 min={0}
                 step="0.01"
-                defaultValue={settings.filters.maxPrice}
+                placeholder="sem limite"
+                defaultValue={settings.filters.maxPrice ?? ""}
                 className={inputClass}
               />
             </Field>

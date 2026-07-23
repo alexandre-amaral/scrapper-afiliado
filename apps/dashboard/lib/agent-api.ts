@@ -76,8 +76,8 @@ export interface Group {
 
 export interface AgentFilters {
   minDiscountPct: number;
-  minPrice: number;
-  maxPrice: number;
+  minPrice: number | null;
+  maxPrice: number | null;
   blockedSellers: string[];
   blockedCategories: string[];
   dedupWindowHours: number;

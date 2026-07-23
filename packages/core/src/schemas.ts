@@ -40,10 +40,18 @@ export const groupSchema = z.object({
   maxPerDay: z.number().int().min(1).max(50).default(5),
 });
 
+// Preço: aceita null/0/negativo como "sem limite" (o dashboard pode mandar 0
+// para campo vazio) e normaliza para null, evitando 400 na UI.
+const optionalPrice = z
+  .number()
+  .nullable()
+  .default(null)
+  .transform((v) => (v != null && v > 0 ? v : null));
+
 export const offerFiltersSchema = z.object({
   minDiscountPct: z.number().min(0).max(100).default(10),
-  minPrice: z.number().positive().nullable().default(null),
-  maxPrice: z.number().positive().nullable().default(null),
+  minPrice: optionalPrice,
+  maxPrice: optionalPrice,
   blockedSellers: z.array(z.string()).default([]),
   blockedCategories: z.array(z.string()).default([]),
   dedupWindowHours: z.number().int().min(1).default(72),

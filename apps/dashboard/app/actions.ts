@@ -81,8 +81,9 @@ export async function patchSettings(formData: FormData): Promise<void> {
   const payload: Partial<AgentSettings> = {
     filters: {
       minDiscountPct: optionalNumber(formData, "minDiscountPct") ?? 0,
-      minPrice: optionalNumber(formData, "minPrice") ?? 0,
-      maxPrice: optionalNumber(formData, "maxPrice") ?? 0,
+      // Preço vazio = sem limite (null), não 0 — o schema exige > 0 ou null.
+      minPrice: optionalNumber(formData, "minPrice") ?? null,
+      maxPrice: optionalNumber(formData, "maxPrice") ?? null,
       dedupWindowHours: optionalNumber(formData, "dedupWindowHours") ?? 0,
       blockedSellers: commaList(formData, "blockedSellers"),
       blockedCategories: commaList(formData, "blockedCategories"),

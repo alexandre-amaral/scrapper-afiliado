@@ -223,7 +223,11 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
     const body = z
       .object({
         enabled: z.boolean().optional(),
-        maxPerDay: z.number().int().min(1).max(50).optional(),
+        // Prende no intervalo [1, 50] em vez de rejeitar (vem de formulário).
+        maxPerDay: z
+          .number()
+          .optional()
+          .transform((v) => (v === undefined ? undefined : Math.min(50, Math.max(1, Math.round(v))))),
       })
       .safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: body.error.issues });

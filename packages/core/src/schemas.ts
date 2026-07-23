@@ -49,13 +49,37 @@ const optionalPrice = z
   .transform((v) => (v != null && v > 0 ? v : null));
 
 export const offerFiltersSchema = z.object({
-  minDiscountPct: z.number().min(0).max(100).default(10),
+  minDiscountPct: z
+    .number()
+    .catch(10)
+    .transform((v) => Math.min(100, Math.max(0, v)))
+    .default(10),
   minPrice: optionalPrice,
   maxPrice: optionalPrice,
   blockedSellers: z.array(z.string()).default([]),
   blockedCategories: z.array(z.string()).default([]),
-  dedupWindowHours: z.number().int().min(1).default(72),
+  dedupWindowHours: z
+    .number()
+    .int()
+    .catch(72)
+    .transform((v) => Math.max(1, Math.round(v)))
+    .default(72),
 });
+
+/**
+ * Inteiro que "prende" o valor no intervalo [min, max] em vez de rejeitar.
+ * Settings vêm de formulários — um campo vazio/fora do range deve cair no
+ * limite mais próximo, nunca dar 400. `def` é usado quando o valor não é número.
+ */
+function clampedInt(min: number, max: number, def: number) {
+  return z
+    .number()
+    .catch(def)
+    .transform((v) => {
+      const n = Math.round(v);
+      return Math.min(max, Math.max(min, n));
+    });
+}
 
 export const agentSettingsSchema = z.object({
   filters: offerFiltersSchema,
@@ -63,16 +87,18 @@ export const agentSettingsSchema = z.object({
   sendWindowStart: z
     .string()
     .regex(/^\d{2}:\d{2}$/)
+    .catch("09:00")
     .default("09:00"),
   sendWindowEnd: z
     .string()
     .regex(/^\d{2}:\d{2}$/)
+    .catch("21:00")
     .default("21:00"),
-  sendIntervalMinutes: z.number().int().min(5).default(45),
-  sendJitterMinutes: z.number().int().min(0).default(15),
+  sendIntervalMinutes: clampedInt(5, 1440, 45).default(45),
+  sendJitterMinutes: clampedInt(0, 120, 15).default(15),
   composerPrompt: z.string().default(""),
   keywords: z.array(z.string()).default([]),
-  rankTopN: z.number().int().min(1).max(20).default(8),
+  rankTopN: clampedInt(1, 20, 8).default(8),
   paused: z.boolean().default(false),
 });
 

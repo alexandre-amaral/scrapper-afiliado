@@ -5,7 +5,8 @@
  */
 
 import { createHash } from "node:crypto";
-import type { NewOfferInput } from "@ml-agent/core";
+import type { AgentEnv, NewOfferInput } from "@ml-agent/core";
+import { fetchPageHtml } from "../affiliate/portal-login.js";
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
@@ -141,28 +142,53 @@ function asHttpUrl(value: string | null): string | null {
 }
 
 /**
+ * Busca o HTML de uma URL de produto. Tenta primeiro `fetch` (rápido); se o ML
+ * responder com a verificação anti-bot (redirect para account-verification) ou
+ * HTML sem metadados, cai para o Playwright com o profile logado, que passa
+ * pela verificação. Retorna null se ambos falharem.
+ */
+async function fetchProductHtml(env: AgentEnv | null, url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "user-agent": USER_AGENT,
+        accept: "text/html,application/xhtml+xml",
+        "accept-language": "pt-BR,pt;q=0.9",
+      },
+      redirect: "follow",
+    });
+    if (res.ok) {
+      const finalUrl = res.url;
+      // Se não foi desviado para a verificação, o HTML já serve.
+      if (!/account-verification|\/gz\//i.test(finalUrl)) {
+        const html = await res.text();
+        if (/og:title|application\/ld\+json/i.test(html)) return html;
+      }
+    }
+  } catch {
+    // ignora — cai para o Playwright
+  }
+  // Fallback: navegador real com a sessão persistida.
+  if (env) return fetchPageHtml(env, url);
+  return null;
+}
+
+/**
  * Processa uma lista de URLs de produto coladas manualmente.
  * Cada URL que falhar (rede, HTML sem metadados, sem preço) é logada e pulada.
+ * `env` habilita o fallback via Playwright quando o ML barra o fetch puro.
  */
-export async function parseManualUrls(urls: string[]): Promise<NewOfferInput[]> {
+export async function parseManualUrls(urls: string[], env: AgentEnv | null = null): Promise<NewOfferInput[]> {
   const offers: NewOfferInput[] = [];
   const seen = new Set<string>();
 
   for (const url of urls) {
     try {
-      const res = await fetch(url, {
-        headers: {
-          "user-agent": USER_AGENT,
-          accept: "text/html,application/xhtml+xml",
-          "accept-language": "pt-BR,pt;q=0.9",
-        },
-        redirect: "follow",
-      });
-      if (!res.ok) {
-        console.error(`[manual] HTTP ${res.status} ao buscar ${url} — pulando`);
+      const html = await fetchProductHtml(env, url);
+      if (!html) {
+        console.error(`[manual] não foi possível carregar ${url} (verificação anti-bot?) — pulando`);
         continue;
       }
-      const html = await res.text();
 
       const jsonLd = extractJsonLdProduct(html);
       const title = jsonLd?.name ?? extractMeta(html, "og:title") ?? extractMeta(html, "twitter:title");

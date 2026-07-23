@@ -15,6 +15,7 @@ import { EvolutionSender, parseEvolutionWebhook } from "../whatsapp/index.js";
 import { processManualUrls, runCollection } from "../pipeline.js";
 import { getSettings, patchSettings } from "../settings.js";
 import { getCredentialsStatus, resolveEnv, saveSecrets, type StoredSecrets } from "../secrets.js";
+import { buildAuthUrl, exchangeCode, redirectUri } from "../oauth.js";
 
 /** Estado do login de afiliado em andamento (Playwright abre o navegador local). */
 type AffiliateLoginState = {
@@ -30,11 +31,32 @@ export interface ServerCtx {
   db: Db;
 }
 
-/** Rotas públicas (sem Bearer token): health check e webhook da Evolution. */
+/** Página HTML simples exibida ao final do fluxo OAuth (sucesso ou erro). */
+function oauthResultPage(ok: boolean, message: string): string {
+  const color = ok ? "#16a34a" : "#dc2626";
+  const title = ok ? "✅ Conectado" : "❌ Falhou";
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OAuth Mercado Livre</title></head>
+<body style="font-family:system-ui,sans-serif;background:#0a0a0a;color:#e5e5e5;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0">
+<div style="max-width:420px;padding:32px;border:1px solid #262626;border-radius:12px;text-align:center">
+<h1 style="color:${color};margin:0 0 12px">${title}</h1>
+<p style="color:#a3a3a3;line-height:1.5">${message}</p>
+<p style="color:#525252;font-size:14px;margin-top:24px">Pode fechar esta aba e voltar ao dashboard.</p>
+</div></body></html>`;
+}
+
+/**
+ * Rotas públicas (sem Bearer token): health, webhook da Evolution e o fluxo
+ * OAuth do ML — /oauth/start e /oauth/callback são acessados pelo NAVEGADOR
+ * (redirect do ML), então não podem exigir o token do dashboard.
+ */
 function isPublicRoute(method: string, path: string): boolean {
   return (
     (method === "GET" && path === "/health") ||
-    (method === "POST" && path === "/webhook/evolution")
+    (method === "POST" && path === "/webhook/evolution") ||
+    (method === "GET" && path === "/oauth/start") ||
+    (method === "GET" && path === "/oauth/callback")
   );
 }
 
@@ -251,6 +273,44 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
     await saveSecrets(db, env, parsed.data as StoredSecrets);
     return getCredentialsStatus(db, env);
   });
+
+  // --- OAuth da API oficial do ML (fluxo authorization code) ---
+  // GET /oauth/start → redireciona o navegador para o consentimento do ML.
+  app.get("/oauth/start", async (_req, reply) => {
+    try {
+      const authUrl = await buildAuthUrl(db, env);
+      return reply.redirect(authUrl);
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // GET /oauth/callback?code=... → troca o code por refresh token e salva.
+  app.get<{ Querystring: { code?: string; error?: string } }>(
+    "/oauth/callback",
+    async (req, reply) => {
+      const { code, error } = req.query;
+      if (error) {
+        return reply.type("text/html").send(oauthResultPage(false, `Autorização negada: ${error}`));
+      }
+      if (!code) {
+        return reply.type("text/html").send(oauthResultPage(false, "Callback sem parâmetro 'code'."));
+      }
+      try {
+        const { userId } = await exchangeCode(db, env, code);
+        return reply
+          .type("text/html")
+          .send(oauthResultPage(true, `Conta ML conectada${userId ? ` (user ${userId})` : ""}.`));
+      } catch (err) {
+        return reply
+          .type("text/html")
+          .send(oauthResultPage(false, err instanceof Error ? err.message : String(err)));
+      }
+    },
+  );
+
+  // Mostra o redirect_uri exato a cadastrar no DevCenter (ajuda de setup).
+  app.get("/oauth/redirect-uri", async () => ({ redirectUri: redirectUri(env) }));
 
   // --- Conta de afiliado: dispara o login interativo via Playwright ---
   // Abre um Chromium na máquina do agente para o operador logar + 2FA.

@@ -28,6 +28,29 @@ function profileDir(env: AgentEnv): string {
   return join(dirname(env.DATABASE_PATH), "playwright-profile");
 }
 
+/**
+ * Carrega uma URL num navegador real (profile persistente) e devolve o HTML.
+ *
+ * Necessário porque o ML passou a barrar `fetch` puro com uma página de
+ * verificação anti-bot (account-verification) — só um navegador de verdade,
+ * com a sessão do profile, chega ao HTML do produto. Retorna null em falha.
+ */
+export async function fetchPageHtml(env: AgentEnv, url: string): Promise<string | null> {
+  let context: BrowserContext | null = null;
+  try {
+    context = await chromium.launchPersistentContext(profileDir(env), { headless: true });
+    const page = await context.newPage();
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    // Se caiu na verificação anti-bot, não há dados de produto para extrair.
+    if (/account-verification|\/gz\//i.test(page.url())) return null;
+    return await page.content();
+  } catch {
+    return null;
+  } finally {
+    await context?.close().catch(() => {});
+  }
+}
+
 /** A URL atual é uma tela de login/registro do ML? */
 function isLoginUrl(url: string): boolean {
   return /login|registration|\/jms\/|account-verification|two_factor|2fa/i.test(url);

@@ -76,6 +76,7 @@ async function dedupFilterInsert(
   settings: AgentSettings,
   inputs: NewOfferInput[],
   applyFilters: boolean,
+  applyDedup = true,
 ): Promise<Offer[]> {
   if (inputs.length === 0) return [];
 
@@ -85,20 +86,23 @@ async function dedupFilterInsert(
   let candidates = [...byItemId.values()];
 
   // Dedup contra o banco dentro da janela configurada.
-  const cutoff = new Date(
-    Date.now() - settings.filters.dedupWindowHours * 3_600_000,
-  ).toISOString();
-  const existing = await db
-    .select({ itemId: offers.itemId })
-    .from(offers)
-    .where(
-      and(
-        inArray(offers.itemId, candidates.map((c) => c.itemId)),
-        gte(offers.collectedAt, cutoff),
-      ),
-    );
-  const seen = new Set(existing.map((e) => e.itemId));
-  candidates = candidates.filter((c) => !seen.has(c.itemId));
+  // A fonte manual pula esta etapa: colar a URL é intenção explícita de postar.
+  if (applyDedup) {
+    const cutoff = new Date(
+      Date.now() - settings.filters.dedupWindowHours * 3_600_000,
+    ).toISOString();
+    const existing = await db
+      .select({ itemId: offers.itemId })
+      .from(offers)
+      .where(
+        and(
+          inArray(offers.itemId, candidates.map((c) => c.itemId)),
+          gte(offers.collectedAt, cutoff),
+        ),
+      );
+    const seen = new Set(existing.map((e) => e.itemId));
+    candidates = candidates.filter((c) => !seen.has(c.itemId));
+  }
 
   if (applyFilters) {
     const f = settings.filters;
@@ -318,8 +322,9 @@ export async function processManualUrls(ctx: PipelineCtx, urls: string[]): Promi
 
   const runId = await startRun(db, "manual");
   try {
-    const parsed = await parseManualUrls(urls);
-    const inserted = await dedupFilterInsert(db, settings, parsed, false);
+    const parsed = await parseManualUrls(urls, env);
+    // Manual: sem filtros e sem dedup — a curadoria humana já decidiu postar.
+    const inserted = await dedupFilterInsert(db, settings, parsed, false, false);
     const created = await createMessagesForOffers(ctx, settings, inserted);
     await finishRun(
       db,

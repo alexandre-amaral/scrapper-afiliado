@@ -4,6 +4,9 @@ import { z } from "zod";
 const agentEnvSchema = z.object({
   AGENT_PORT: z.coerce.number().int().default(3001),
   AGENT_TOKEN: z.string().min(16, "AGENT_TOKEN muito curto — gere com: openssl rand -hex 32"),
+  // URL pública do agente (VPS). Usada para montar o redirect_uri do OAuth ML.
+  // Vazio = usa http://localhost:<AGENT_PORT> (dev local).
+  PUBLIC_URL: z.string().optional().default(""),
   DATABASE_PATH: z.string().default("./data/agent.sqlite"),
   SESSION_ENCRYPTION_KEY: z
     .string()

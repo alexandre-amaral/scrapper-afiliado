@@ -9,6 +9,7 @@ const links = [
   { href: "/fontes", label: "Fontes" },
   { href: "/grupos", label: "Grupos" },
   { href: "/configuracoes", label: "Configurações" },
+  { href: "/credenciais", label: "Credenciais" },
   { href: "/whatsapp", label: "WhatsApp" },
 ];
 

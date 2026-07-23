@@ -10,10 +10,20 @@ import {
   type MessageStatus,
 } from "@ml-agent/core";
 import { groups, messages, offers, runs, type Db } from "@ml-agent/db";
-import { getSessionStatus } from "../affiliate/index.js";
+import { getSessionStatus, refreshSessionInteractive } from "../affiliate/index.js";
 import { EvolutionSender, parseEvolutionWebhook } from "../whatsapp/index.js";
 import { processManualUrls, runCollection } from "../pipeline.js";
 import { getSettings, patchSettings } from "../settings.js";
+import { getCredentialsStatus, resolveEnv, saveSecrets, type StoredSecrets } from "../secrets.js";
+
+/** Estado do login de afiliado em andamento (Playwright abre o navegador local). */
+type AffiliateLoginState = {
+  running: boolean;
+  startedAt: string | null;
+  finishedAt: string | null;
+  ok: boolean | null;
+  error: string | null;
+};
 
 export interface ServerCtx {
   env: AgentEnv;
@@ -220,6 +230,70 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
       if (err instanceof z.ZodError) return reply.code(400).send({ error: err.issues });
       throw err;
     }
+  });
+
+  // --- Credenciais (chave Gemini + API oficial ML), criptografadas no SQLite ---
+  const credentialsPatchSchema = z.object({
+    GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
+    LLM_MODEL: z.string().optional(),
+    ML_CLIENT_ID: z.string().optional(),
+    ML_CLIENT_SECRET: z.string().optional(),
+    ML_REFRESH_TOKEN: z.string().optional(),
+  });
+
+  // Devolve status seguro (sensíveis viram booleano "configurado?"), nunca em claro.
+  app.get("/credentials", async () => getCredentialsStatus(db, env));
+
+  app.patch("/credentials", async (req, reply) => {
+    const parsed = credentialsPatchSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.issues });
+    await saveSecrets(db, env, parsed.data as StoredSecrets);
+    return getCredentialsStatus(db, env);
+  });
+
+  // --- Conta de afiliado: dispara o login interativo via Playwright ---
+  // Abre um Chromium na máquina do agente para o operador logar + 2FA.
+  // Só faz sentido rodando local (não numa VPS headless).
+  const affiliateLogin: AffiliateLoginState = {
+    running: false,
+    startedAt: null,
+    finishedAt: null,
+    ok: null,
+    error: null,
+  };
+
+  app.get("/affiliate/status", async () => ({
+    session: await getSessionStatus(await resolveEnv(db, env)).catch(() => "unknown" as const),
+    login: affiliateLogin,
+  }));
+
+  app.post("/affiliate/connect", async (_req, reply) => {
+    if (affiliateLogin.running) {
+      return reply.code(409).send({ error: "Login de afiliado já em andamento." });
+    }
+    affiliateLogin.running = true;
+    affiliateLogin.startedAt = new Date().toISOString();
+    affiliateLogin.finishedAt = null;
+    affiliateLogin.ok = null;
+    affiliateLogin.error = null;
+
+    // Fire-and-forget: o navegador abre e o operador conclui manualmente.
+    void (async () => {
+      try {
+        const resolved = await resolveEnv(db, env);
+        await refreshSessionInteractive(resolved, { headless: false });
+        affiliateLogin.ok = true;
+      } catch (err) {
+        affiliateLogin.ok = false;
+        affiliateLogin.error = err instanceof Error ? err.message : String(err);
+        app.log.error({ err }, "login interativo de afiliado falhou");
+      } finally {
+        affiliateLogin.running = false;
+        affiliateLogin.finishedAt = new Date().toISOString();
+      }
+    })();
+
+    return { started: true };
   });
 
   // --- WhatsApp: QR code para parear ---

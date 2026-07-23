@@ -100,6 +100,33 @@ export interface QrResponse {
   qr: string | null;
 }
 
+// ----- Credenciais -----
+
+export interface CredentialsStatus {
+  gemini: { configured: boolean; source: "dashboard" | "env" | "none" };
+  llmModel: string;
+  ml: {
+    clientId: string;
+    clientSecretConfigured: boolean;
+    refreshTokenConfigured: boolean;
+    source: "dashboard" | "env" | "none";
+  };
+  sensitiveFields: string[];
+}
+
+export interface AffiliateLoginState {
+  running: boolean;
+  startedAt: string | null;
+  finishedAt: string | null;
+  ok: boolean | null;
+  error: string | null;
+}
+
+export interface AffiliateStatus {
+  session: AffiliateSessionStatus;
+  login: AffiliateLoginState;
+}
+
 // ----- Cliente -----
 
 export class AgentApiError extends Error {

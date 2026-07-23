@@ -124,6 +124,43 @@ export async function triggerCollect(): Promise<void> {
   revalidatePath("/fontes");
 }
 
+export async function saveCredentials(formData: FormData): Promise<void> {
+  // Só enviamos campos preenchidos: string vazia limpa, ausente não mexe.
+  // (Sensíveis com placeholder "••••" no form vêm vazios se não editados.)
+  const payload: Record<string, string> = {};
+  const put = (key: string, formKey: string) => {
+    const raw = formData.get(formKey);
+    if (typeof raw === "string" && raw.trim() !== "") payload[key] = raw.trim();
+  };
+  // Campos que suportam "limpar" explicitamente via checkbox.
+  const clear = (key: string, formKey: string) => {
+    if (formData.get(formKey) === "on") payload[key] = "";
+  };
+
+  put("GOOGLE_GENERATIVE_AI_API_KEY", "geminiKey");
+  clear("GOOGLE_GENERATIVE_AI_API_KEY", "clearGemini");
+  put("LLM_MODEL", "llmModel");
+  put("ML_CLIENT_ID", "mlClientId");
+  put("ML_CLIENT_SECRET", "mlClientSecret");
+  put("ML_REFRESH_TOKEN", "mlRefreshToken");
+
+  await agentFetch("/credentials", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+  revalidatePath("/credenciais");
+  revalidatePath("/");
+}
+
+export async function connectAffiliate(): Promise<void> {
+  // Dispara o login interativo — abre um Chromium na máquina do agente.
+  await agentFetch("/affiliate/connect", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  revalidatePath("/credenciais");
+}
+
 export async function togglePause(formData: FormData): Promise<void> {
   const currentlyPaused = formData.get("paused") === "true";
   await agentFetch("/settings", {

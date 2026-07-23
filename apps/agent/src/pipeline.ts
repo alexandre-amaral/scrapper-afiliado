@@ -15,6 +15,7 @@ import {
 } from "./affiliate/index.js";
 import { composeMessage, rankOffers } from "./llm/index.js";
 import { getSettings, patchSettings } from "./settings.js";
+import { resolveEnv } from "./secrets.js";
 
 /** Logger mínimo compatível com o pino do Fastify. */
 export interface Log {
@@ -249,7 +250,9 @@ async function createMessagesForOffers(
  * link de afiliado → composição → mensagens por grupo.
  */
 export async function runCollection(ctx: PipelineCtx): Promise<{ collected: number; kept: number }> {
-  const { env, db, log } = ctx;
+  const { db, log } = ctx;
+  // Env efetivo: .env + segredos do dashboard (chave Gemini, credenciais ML).
+  const env = await resolveEnv(db, ctx.env);
   const settings = await getSettings(db);
   if (settings.paused) {
     log.info("coleta pulada: agente pausado");
@@ -309,7 +312,8 @@ export async function runCollection(ctx: PipelineCtx): Promise<{ collected: numb
  * a curadoria já foi humana. Retorna o nº de mensagens criadas.
  */
 export async function processManualUrls(ctx: PipelineCtx, urls: string[]): Promise<number> {
-  const { env, db } = ctx;
+  const { db } = ctx;
+  const env = await resolveEnv(db, ctx.env);
   const settings = await getSettings(db);
 
   const runId = await startRun(db, "manual");

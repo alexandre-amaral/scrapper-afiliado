@@ -199,22 +199,30 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
     return updated;
   });
 
-  // --- Grupos: banco mesclado com os grupos vistos pela Evolution ---
+  // --- Grupos: leitura rápida (só do banco) ---
+  // NÃO consulta a Evolution aqui — listar centenas de grupos é lento e
+  // travaria a página a cada load. A sincronização é explícita via POST /groups/sync.
   app.get("/groups", async () => {
+    return db.select().from(groups).orderBy(asc(groups.name));
+  });
+
+  // --- Sincroniza os grupos com a Evolution (botão no dashboard) ---
+  app.post("/groups/sync", async (_req, reply) => {
     try {
       const remote = await sender.listGroups();
       for (const g of remote) {
-        // Upsert: grupos novos entram DESABILITADOS (operador habilita no dashboard);
-        // em conflito, só o nome é atualizado — enabled/maxPerDay configurados são preservados.
+        // Grupos novos entram DESABILITADOS; em conflito, só o nome é atualizado
+        // (enabled/maxPerDay configurados pelo operador são preservados).
         await db
           .insert(groups)
           .values({ id: g.id, name: g.name, enabled: false, maxPerDay: g.maxPerDay })
           .onConflictDoUpdate({ target: groups.id, set: { name: g.name } });
       }
+      return { synced: remote.length };
     } catch (err) {
-      app.log.warn({ err }, "listGroups falhou — retornando apenas grupos do banco");
+      app.log.warn({ err }, "sincronização de grupos falhou");
+      return reply.code(502).send({ error: "não foi possível sincronizar com o WhatsApp agora." });
     }
-    return db.select().from(groups).orderBy(asc(groups.name));
   });
 
   app.patch("/groups/:id", async (req, reply) => {

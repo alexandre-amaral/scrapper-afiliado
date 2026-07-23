@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
-import { patchGroup } from "@/app/actions";
+import { patchGroup, syncGroups } from "@/app/actions";
 import { SetupHint } from "@/components/setup-hint";
+import { SyncGroupsButton } from "@/components/sync-groups-button";
 import { tryAgent, type Group } from "@/lib/agent-api";
 
 export const dynamic = "force-dynamic";
@@ -23,19 +24,23 @@ export default async function GroupsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">Grupos</h1>
-        <p className="mt-1 text-sm text-neutral-500">
-          Grupos de WhatsApp que recebem as ofertas. Controle quais estão
-          ativos e o limite diário de mensagens por grupo.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Grupos</h1>
+          <p className="mt-1 text-sm text-neutral-500">
+            Grupos de WhatsApp que recebem as ofertas. Controle quais estão
+            ativos e o limite diário de mensagens por grupo.
+          </p>
+        </div>
+        <SyncGroupsButton action={syncGroups} />
       </div>
 
       {groups.length === 0 ? (
         <div className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-10 text-center">
           <p className="text-sm text-neutral-400">Nenhum grupo encontrado.</p>
           <p className="mt-1 text-xs text-neutral-600">
-            Conecte o WhatsApp para que o agente descubra os grupos do número.
+            Conecte o WhatsApp e clique em “Sincronizar grupos” para o agente
+            descobrir os grupos do número.
           </p>
         </div>
       ) : (

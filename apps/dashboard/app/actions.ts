@@ -119,6 +119,11 @@ export async function patchGroup(formData: FormData): Promise<void> {
   revalidatePath("/grupos");
 }
 
+export async function syncGroups(): Promise<void> {
+  await agentFetch("/groups/sync", { method: "POST", body: JSON.stringify({}) });
+  revalidatePath("/grupos");
+}
+
 export async function triggerCollect(): Promise<void> {
   await agentFetch("/collect", { method: "POST", body: JSON.stringify({}) });
   revalidatePath("/");

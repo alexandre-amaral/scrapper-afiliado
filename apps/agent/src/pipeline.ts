@@ -142,7 +142,10 @@ async function createMessagesForOffers(
   settings: AgentSettings,
   selected: Offer[],
 ): Promise<number> {
-  const { env, db, log } = ctx;
+  const { db, log } = ctx;
+  // Env resolvido: inclui os segredos do cofre (tag de afiliado, chave Gemini).
+  // ctx.env é o env cru do boot — usá-lo aqui perderia a ML_AFFILIATE_TAG.
+  const env = await resolveEnv(db, ctx.env);
   if (selected.length === 0) return 0;
 
   const enabledGroups = await db.select().from(groups).where(eq(groups.enabled, true));

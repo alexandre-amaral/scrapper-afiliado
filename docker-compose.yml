@@ -1,0 +1,51 @@
+# ============================================================================
+# docker-compose.yml — agente + Evolution API (VPS; local é opcional)
+#
+# IMPORTANTE (VPS): no .env, aponte o agente para o container da Evolution
+# pela rede interna do compose (e use caminho absoluto para o SQLite):
+#   EVOLUTION_URL=http://evolution:8080
+#   DATABASE_PATH=/app/data/agent.sqlite
+#
+# Subir tudo:            docker compose up -d --build
+# Só a Evolution (dev):  docker compose up -d evolution
+#   (nesse caso adicione um mapeamento de porta local, ex.:
+#    `ports: ["127.0.0.1:8080:8080"]`, ou use um override — em produção a
+#    Evolution NUNCA deve ter porta pública.)
+# Migrações na VPS:      docker compose exec agent pnpm db:migrate
+# ============================================================================
+
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: apps/agent/Dockerfile
+    env_file: .env
+    restart: unless-stopped
+    depends_on:
+      - evolution
+    ports:
+      # Só no loopback — quem expõe para a internet é o Caddy (deploy/Caddyfile)
+      - "127.0.0.1:3001:3001"
+    volumes:
+      # SQLite + sessão criptografada do portal de afiliados
+      - ./data:/app/data
+    networks:
+      - internal
+
+  evolution:
+    image: evoapicloud/evolution-api:latest
+    restart: unless-stopped
+    environment:
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY}
+    volumes:
+      - evolution_instances:/evolution/instances
+    # SEM `ports`: a Evolution nunca é exposta publicamente.
+    # O agente a alcança em http://evolution:8080 pela rede interna.
+    networks:
+      - internal
+
+networks:
+  internal:
+
+volumes:
+  evolution_instances:

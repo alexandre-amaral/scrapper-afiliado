@@ -1,0 +1,28 @@
+# ============================================================================
+# deploy/Caddyfile — reverse proxy do agente com TLS automático (Let's Encrypt)
+#
+# 1. DNS: crie um registro A `agente.SEUDOMINIO.com` apontando para o IP da
+#    VPS. Aguarde propagar (dig agente.SEUDOMINIO.com) antes de subir o Caddy —
+#    o certificado só é emitido se o domínio resolver para a máquina.
+#
+# 2. Como rodar o Caddy (escolha UMA opção):
+#
+#    a) Serviço do sistema (recomendado — mais simples com localhost):
+#       sudo apt install -y caddy
+#       sudo cp deploy/Caddyfile /etc/caddy/Caddyfile   # edite o domínio!
+#       sudo systemctl reload caddy
+#
+#    b) Docker: o container precisa alcançar a porta 3001 do host, então use
+#       network_mode host:
+#       docker run -d --name caddy --network host --restart unless-stopped \
+#         -v $PWD/deploy/Caddyfile:/etc/caddy/Caddyfile \
+#         -v caddy_data:/data caddy:2
+#
+# 3. Libere as portas 80 e 443 no firewall (ufw allow 80,443/tcp).
+#
+# Depois, na Vercel, configure AGENT_URL=https://agente.SEUDOMINIO.com
+# ============================================================================
+
+agente.SEUDOMINIO.com {
+	reverse_proxy localhost:3001
+}

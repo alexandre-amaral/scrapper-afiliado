@@ -1,0 +1,25 @@
+# deps
+node_modules/
+.pnpm-store/
+
+# builds
+dist/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# env & secrets
+.env
+.env.local
+.env.*.local
+
+# runtime data
+data/
+*.sqlite
+*.sqlite-journal
+*.db
+sessions/
+playwright/.auth/
+
+# os
+.DS_Store

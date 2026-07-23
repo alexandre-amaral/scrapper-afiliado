@@ -1,0 +1,20 @@
+{
+  "name": "ml-affiliate-agent",
+  "private": true,
+  "packageManager": "pnpm@11.16.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "db:generate": "pnpm --filter @ml-agent/db db:generate",
+    "db:migrate": "pnpm --filter @ml-agent/db db:migrate"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.0"
+  }
+}

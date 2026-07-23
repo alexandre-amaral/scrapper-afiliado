@@ -1,0 +1,27 @@
+# Dependências e artefatos de build (reinstalados/recompilados na imagem)
+node_modules
+**/node_modules
+**/dist
+**/.next
+.turbo
+**/.turbo
+
+# Dados locais (SQLite, sessões) — entram via volume, nunca na imagem
+data
+**/data
+
+# Segredos
+.env
+.env.*
+!.env.example
+
+# Controle de versão e metadados
+.git
+.gitignore
+.DS_Store
+*.log
+
+# Não são necessários para o build da imagem
+deploy
+README.md
+ARQUITETURA.md

@@ -1,0 +1,178 @@
+// Cliente server-side da API REST do agente.
+// Usa AGENT_URL + AGENT_TOKEN (somente no servidor — o token nunca vai ao client).
+
+// ----- Tipos da API -----
+
+export type WhatsAppStatus =
+  | "connected"
+  | "connecting"
+  | "disconnected"
+  | "qr"
+  | "banned";
+
+export type AffiliateSessionStatus = "valid" | "expired" | "unknown";
+
+export type MessageStatus =
+  | "draft"
+  | "approved"
+  | "scheduled"
+  | "sent"
+  | "failed"
+  | "rejected";
+
+export interface Message {
+  id: string;
+  offerId: string;
+  body: string;
+  status: MessageStatus;
+  groupId: string | null;
+  scheduledFor: string | null;
+  sentAt: string | null;
+  error: string | null;
+  createdAt: string;
+}
+
+export interface Run {
+  id: string;
+  kind?: string;
+  status?: string;
+  startedAt?: string;
+  finishedAt?: string | null;
+  detail?: string | null;
+  [key: string]: unknown;
+}
+
+export interface Overview {
+  whatsapp: WhatsAppStatus;
+  affiliateSession: AffiliateSessionStatus;
+  paused: boolean;
+  nextMessages: Message[];
+  lastSent: Message[];
+  lastRuns: Run[];
+}
+
+export type OfferSource = string; // ex.: "ml-api" | "scraper" | "manual"
+
+export interface Offer {
+  id: string;
+  itemId: string;
+  title: string;
+  url: string;
+  price: number;
+  originalPrice: number | null;
+  discountPct: number | null;
+  freeShipping: boolean;
+  imageUrl: string | null;
+  source: OfferSource;
+  collectedAt: string;
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  enabled: boolean;
+  maxPerDay: number;
+}
+
+export interface AgentFilters {
+  minDiscountPct: number;
+  minPrice: number;
+  maxPrice: number;
+  blockedSellers: string[];
+  blockedCategories: string[];
+  dedupWindowHours: number;
+}
+
+export interface AgentSettings {
+  filters: AgentFilters;
+  autoApprove: boolean;
+  sendWindowStart: string;
+  sendWindowEnd: string;
+  sendIntervalMinutes: number;
+  sendJitterMinutes: number;
+  composerPrompt: string;
+  keywords: string[];
+  rankTopN: number;
+  paused: boolean;
+}
+
+export interface QrResponse {
+  qr: string | null;
+}
+
+// ----- Cliente -----
+
+export class AgentApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status?: number,
+  ) {
+    super(message);
+    this.name = "AgentApiError";
+  }
+}
+
+export function agentUrlForDisplay(): string {
+  return process.env.AGENT_URL ?? "(AGENT_URL não definida)";
+}
+
+export async function agentFetch<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const baseUrl = process.env.AGENT_URL;
+  if (!baseUrl) {
+    throw new AgentApiError(
+      "AGENT_URL não está configurada. Defina AGENT_URL e AGENT_TOKEN no .env (ou nas variáveis de ambiente da Vercel).",
+    );
+  }
+
+  const url = `${baseUrl.replace(/\/+$/, "")}${path}`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...init,
+      cache: "no-store",
+      headers: {
+        Authorization: `Bearer ${process.env.AGENT_TOKEN ?? ""}`,
+        ...(init.body != null ? { "Content-Type": "application/json" } : {}),
+        ...init.headers,
+      },
+    });
+  } catch {
+    throw new AgentApiError(
+      `Agente não alcançável em ${baseUrl} — verifique AGENT_URL/AGENT_TOKEN.`,
+    );
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new AgentApiError(
+      `Agente respondeu ${res.status} em ${path}${body ? `: ${body}` : ""}`,
+      res.status,
+    );
+  }
+
+  if (res.status === 204) {
+    return undefined as T;
+  }
+  return (await res.json()) as T;
+}
+
+// Variante segura para páginas: nunca lança — devolve um resultado
+// discriminado para renderizar um aviso amigável em vez de quebrar.
+export type AgentResult<T> = { ok: true; data: T } | { ok: false; error: string };
+
+export async function tryAgent<T>(path: string): Promise<AgentResult<T>> {
+  try {
+    return { ok: true, data: await agentFetch<T>(path) };
+  } catch (err) {
+    if (err instanceof AgentApiError) {
+      return { ok: false, error: err.message };
+    }
+    return {
+      ok: false,
+      error: `Agente não alcançável em ${agentUrlForDisplay()} — verifique AGENT_URL/AGENT_TOKEN.`,
+    };
+  }
+}

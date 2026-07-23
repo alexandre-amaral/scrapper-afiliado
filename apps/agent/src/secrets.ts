@@ -27,6 +27,7 @@ export type StoredSecrets = {
   ML_CLIENT_ID?: string;
   ML_CLIENT_SECRET?: string;
   ML_REFRESH_TOKEN?: string;
+  ML_AFFILIATE_TAG?: string;
 };
 
 const SECRET_FIELDS: (keyof StoredSecrets)[] = [
@@ -35,6 +36,7 @@ const SECRET_FIELDS: (keyof StoredSecrets)[] = [
   "ML_CLIENT_ID",
   "ML_CLIENT_SECRET",
   "ML_REFRESH_TOKEN",
+  "ML_AFFILIATE_TAG",
 ];
 
 /** Campos tratados como sensíveis — nunca devolvidos em claro ao dashboard. */
@@ -144,6 +146,7 @@ export async function getCredentialsStatus(db: Db, env: AgentEnv) {
       refreshTokenConfigured: has("ML_REFRESH_TOKEN"),
       source: secrets.ML_CLIENT_ID ? "dashboard" : env.ML_CLIENT_ID ? "env" : "none",
     },
+    affiliateTag: secrets.ML_AFFILIATE_TAG || env.ML_AFFILIATE_TAG || "",
     sensitiveFields: SENSITIVE_FIELDS,
   };
 }

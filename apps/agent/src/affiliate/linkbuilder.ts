@@ -18,9 +18,14 @@ export type { AffiliateSessionStatus };
 /** URL do hub de afiliados — usada para checagem leve de sessão. */
 const HUB_URL = "https://www.mercadolivre.com.br/afiliados/hub";
 
-/** Endpoint interno chamado pelo linkbuilder do portal. */
-const CREATE_URL_ENDPOINT =
-  "https://www.mercadolivre.com.br/affiliate-program/api/affiliates/v1/createUrl";
+/**
+ * Endpoint interno chamado pelo linkbuilder do portal (capturado via DevTools
+ * na sessão logada em jul/2026). Payload: { urls: string[], tag: string }.
+ * Resposta: { status, urls: [{ short_url, origin_url, error_code, message, status }],
+ * total_success, total_error }. O link de afiliado sai em `short_url` (meli.la).
+ */
+const CREATE_LINK_ENDPOINT =
+  "https://www.mercadolivre.com.br/affiliate-program/api/v2/affiliates/createLink";
 
 /** User-Agent realista — o endpoint interno rejeita clients "não-browser". */
 const USER_AGENT =
@@ -109,37 +114,46 @@ export async function getSessionStatus(env: AgentEnv): Promise<AffiliateSessionS
   }
 }
 
-/**
- * Extrai o short link de uma entrada da resposta, tolerando os shapes que o
- * endpoint interno já apresentou: { short_url }, { shortUrl }, { url }.
- */
-function extractShortUrl(entry: unknown): string | null {
-  if (typeof entry === "string") return entry.startsWith("http") ? entry : null;
-  if (typeof entry !== "object" || entry === null) return null;
-  const obj = entry as Record<string, unknown>;
-  for (const key of ["short_url", "shortUrl", "url", "link"]) {
-    const value = obj[key];
-    if (typeof value === "string" && value.startsWith("http")) return value;
+/** Uma entrada do array `urls` na resposta do createLink. */
+interface CreateLinkEntry {
+  short_url?: string;
+  origin_url?: string;
+  long_url?: string;
+  error_code?: number;
+  message?: string;
+  status?: number;
+}
+
+/** Lançado quando um item específico é rejeitado pelo programa (ex.: URL inelegível). */
+export class LinkNotAllowedError extends Error {
+  constructor(
+    public readonly originUrl: string,
+    public readonly code: number,
+    message: string,
+  ) {
+    super(`URL rejeitada pelo programa de afiliados (código ${code}): ${message}`);
+    this.name = "LinkNotAllowedError";
   }
-  return null;
+}
+
+/** Resolve a tag de afiliado a ser usada no payload (env → obrigatória). */
+function resolveTag(env: AgentEnv): string {
+  const tag = env.ML_AFFILIATE_TAG?.trim();
+  if (!tag) {
+    throw new SessionExpiredError(
+      "ML_AFFILIATE_TAG não configurada — defina a etiqueta de afiliado (ex.: aujo1529556) " +
+        "nas Credenciais do dashboard ou no .env.",
+    );
+  }
+  return tag;
 }
 
 /**
- * Extrai a URL longa (de origem) de uma entrada da resposta, quando presente —
- * usada para mapear resposta → URL de entrada nos lotes.
+ * POST no createLink para um lote de URLs; retorna as entradas cruas da resposta.
+ * Contrato real (capturado do portal): body { urls, tag };
+ * resposta { status, urls: CreateLinkEntry[], total_success, total_error }.
  */
-function extractLongUrl(entry: unknown): string | null {
-  if (typeof entry !== "object" || entry === null) return null;
-  const obj = entry as Record<string, unknown>;
-  for (const key of ["long_url", "longUrl", "original_url", "originalUrl"]) {
-    const value = obj[key];
-    if (typeof value === "string" && value.startsWith("http")) return value;
-  }
-  return null;
-}
-
-/** POST no createUrl para um lote de URLs; retorna as entradas cruas da resposta. */
-async function callCreateUrl(env: AgentEnv, productUrls: string[]): Promise<unknown[]> {
+async function callCreateLink(env: AgentEnv, productUrls: string[]): Promise<CreateLinkEntry[]> {
   const cookies = await loadSession(env);
   if (!cookies || cookies.length === 0) {
     throw new SessionExpiredError("Nenhuma sessão do portal persistida — faça login primeiro");
@@ -149,7 +163,7 @@ async function callCreateUrl(env: AgentEnv, productUrls: string[]): Promise<unkn
     throw new SessionExpiredError("Cookies da sessão expiraram — renovação necessária");
   }
 
-  const res = await fetch(CREATE_URL_ENDPOINT, {
+  const res = await fetch(CREATE_LINK_ENDPOINT, {
     method: "POST",
     redirect: "manual",
     headers: {
@@ -157,18 +171,18 @@ async function callCreateUrl(env: AgentEnv, productUrls: string[]): Promise<unkn
       "content-type": "application/json",
       origin: "https://www.mercadolivre.com.br",
     },
-    body: JSON.stringify({ urls: productUrls }),
+    body: JSON.stringify({ urls: productUrls, tag: resolveTag(env) }),
   });
 
   if (res.status === 401 || res.status === 403) {
-    throw new SessionExpiredError(`createUrl respondeu ${res.status} — sessão expirada`);
+    throw new SessionExpiredError(`createLink respondeu ${res.status} — sessão expirada`);
   }
   if (res.status >= 300 && res.status < 400) {
     // Redirect para login também sinaliza sessão morta.
-    throw new SessionExpiredError("createUrl redirecionou — sessão expirada");
+    throw new SessionExpiredError("createLink redirecionou — sessão expirada");
   }
   if (!res.ok) {
-    throw new Error(`createUrl falhou com status ${res.status}`);
+    throw new Error(`createLink falhou com status ${res.status}`);
   }
 
   let payload: unknown;
@@ -176,31 +190,37 @@ async function callCreateUrl(env: AgentEnv, productUrls: string[]): Promise<unkn
     payload = await res.json();
   } catch {
     // Resposta não-JSON (ex.: HTML de login servido com 200) = sessão inválida.
-    throw new SessionExpiredError("createUrl retornou resposta não-JSON — sessão expirada");
+    throw new SessionExpiredError("createLink retornou resposta não-JSON — sessão expirada");
   }
 
-  // Shapes conhecidos: { urls: [...] } | { data: { urls: [...] } } | objeto único.
-  if (typeof payload === "object" && payload !== null) {
-    const obj = payload as Record<string, unknown>;
-    if (Array.isArray(obj.urls)) return obj.urls;
-    const data = obj.data;
-    if (typeof data === "object" && data !== null) {
-      const dataUrls = (data as Record<string, unknown>).urls;
-      if (Array.isArray(dataUrls)) return dataUrls;
-    }
-    return [payload]; // shape { short_url } direto
+  if (typeof payload === "object" && payload !== null && Array.isArray((payload as { urls?: unknown }).urls)) {
+    return (payload as { urls: CreateLinkEntry[] }).urls;
   }
-  if (Array.isArray(payload)) return payload;
+  throw new SessionExpiredError("Resposta do createLink em formato irreconhecível");
+}
 
-  throw new SessionExpiredError("Resposta do createUrl em formato irreconhecível");
+/** Sucesso de item = error_code ausente/zero E short_url presente. */
+function entryShortUrl(entry: CreateLinkEntry): string | null {
+  if (entry.error_code && entry.error_code !== 0) return null;
+  const url = entry.short_url;
+  return typeof url === "string" && url.startsWith("http") ? url : null;
 }
 
 /** Gera o link de afiliado para uma única URL de produto. */
 export async function generateAffiliateLink(env: AgentEnv, productUrl: string): Promise<string> {
-  const entries = await callCreateUrl(env, [productUrl]);
-  const shortUrl = entries.map(extractShortUrl).find((u): u is string => u !== null);
+  const entries = await callCreateLink(env, [productUrl]);
+  const entry = entries[0];
+  if (!entry) {
+    throw new SessionExpiredError("createLink não retornou nenhuma entrada — resposta inesperada");
+  }
+  const shortUrl = entryShortUrl(entry);
   if (!shortUrl) {
-    throw new SessionExpiredError("createUrl não retornou short link — resposta inesperada");
+    // Item rejeitado (ex.: código 111 "URL not allowed") — erro do item, não da sessão.
+    throw new LinkNotAllowedError(
+      entry.origin_url ?? productUrl,
+      entry.error_code ?? -1,
+      entry.message ?? "sem short_url na resposta",
+    );
   }
   return shortUrl;
 }
@@ -225,14 +245,14 @@ export async function generateAffiliateLinks(
     if (i > 0) await sleep(jitterDelayMs());
 
     const chunk = productUrls.slice(i, i + BATCH_SIZE);
-    const entries = await callCreateUrl(env, chunk);
+    const entries = await callCreateLink(env, chunk);
 
     entries.forEach((entry, index) => {
-      const shortUrl = extractShortUrl(entry);
-      if (!shortUrl) return;
-      // Preferir o mapeamento pela long_url da resposta; fallback pela posição.
-      const longUrl = extractLongUrl(entry);
-      const inputUrl = longUrl && chunk.includes(longUrl) ? longUrl : chunk[index];
+      const shortUrl = entryShortUrl(entry);
+      if (!shortUrl) return; // item rejeitado — fica de fora do Map
+      // Preferir o mapeamento pela origin_url da resposta; fallback pela posição.
+      const originUrl = entry.origin_url;
+      const inputUrl = originUrl && chunk.includes(originUrl) ? originUrl : chunk[index];
       if (inputUrl !== undefined && !result.has(inputUrl)) {
         result.set(inputUrl, shortUrl);
       }

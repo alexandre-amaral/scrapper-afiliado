@@ -79,6 +79,38 @@ export default async function CredenciaisPage() {
           </form>
         </div>
 
+        {/* Etiqueta de afiliado — obrigatória para gerar os links (vai no payload do linkbuilder). */}
+        <div className="mt-4">
+          <form action={saveCredentials} className="flex flex-wrap items-end gap-3">
+            <div className="flex-1">
+              <label className="text-xs font-medium text-neutral-400">
+                Etiqueta de afiliado (tag){" "}
+                {cred.affiliateTag ? (
+                  <span className="text-green-500">✓ {cred.affiliateTag}</span>
+                ) : (
+                  <span className="text-amber-400">obrigatória p/ gerar links</span>
+                )}
+              </label>
+              <input
+                type="text"
+                name="mlAffiliateTag"
+                defaultValue={cred.affiliateTag}
+                placeholder="ex.: aujo1529556"
+                className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600"
+              />
+              <p className="mt-1 text-xs text-neutral-500">
+                É a etiqueta que aparece em “Etiqueta em uso” no linkbuilder do portal.
+              </p>
+            </div>
+            <button
+              type="submit"
+              className="rounded-lg bg-neutral-100 px-4 py-2 text-sm font-semibold text-neutral-900 transition-colors hover:bg-white"
+            >
+              Salvar tag
+            </button>
+          </form>
+        </div>
+
         <div className="mt-4 rounded-lg border border-neutral-800 bg-neutral-950/50 p-4 text-sm text-neutral-400">
           {loginRunning ? (
             <p>

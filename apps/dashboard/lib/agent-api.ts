@@ -111,6 +111,7 @@ export interface CredentialsStatus {
     refreshTokenConfigured: boolean;
     source: "dashboard" | "env" | "none";
   };
+  affiliateTag: string;
   sensitiveFields: string[];
 }
 

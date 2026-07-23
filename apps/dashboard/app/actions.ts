@@ -143,6 +143,7 @@ export async function saveCredentials(formData: FormData): Promise<void> {
   put("ML_CLIENT_ID", "mlClientId");
   put("ML_CLIENT_SECRET", "mlClientSecret");
   put("ML_REFRESH_TOKEN", "mlRefreshToken");
+  put("ML_AFFILIATE_TAG", "mlAffiliateTag");
 
   await agentFetch("/credentials", {
     method: "PATCH",

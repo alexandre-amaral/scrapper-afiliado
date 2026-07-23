@@ -239,6 +239,7 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
     ML_CLIENT_ID: z.string().optional(),
     ML_CLIENT_SECRET: z.string().optional(),
     ML_REFRESH_TOKEN: z.string().optional(),
+    ML_AFFILIATE_TAG: z.string().optional(),
   });
 
   // Devolve status seguro (sensíveis viram booleano "configurado?"), nunca em claro.

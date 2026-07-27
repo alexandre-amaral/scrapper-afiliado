@@ -1,150 +1,174 @@
-# ml-affiliate-agent
+# 🤖 Agente de Afiliados — Mercado Livre → WhatsApp
 
-Agente que captura promoções no Mercado Livre (API oficial, scraping de
-`/ofertas` e lista manual), gera links de afiliado vinculados à sua conta,
-compõe mensagens de venda com um LLM (Gemini, BYOK — a chave é sua) e dispara
-periodicamente em grupos de WhatsApp via Evolution API, com um dashboard
-Next.js para configurar fontes, aprovar mensagens e acompanhar tudo. Monorepo
-Node/TypeScript (pnpm + Turborepo), local-first: roda inteiro na sua máquina;
-em produção o agente vai para uma VPS e o dashboard para a Vercel.
+Captura promoções no Mercado Livre, gera **links de afiliado** vinculados à sua
+conta, escreve a mensagem de venda com IA e posta nos seus **grupos de
+WhatsApp** — com cadência humana e um painel web para controlar tudo.
 
-**Pipeline em uma linha:** coleta de ofertas → dedup/filtros/ranking → link de
-afiliado → mensagem via Gemini → fila com cadência humana → grupos do WhatsApp.
+<p align="center">
+  <img alt="Node" src="https://img.shields.io/badge/Node-20%2B-3c873a">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.8-3178c6">
+  <img alt="Next.js" src="https://img.shields.io/badge/Next.js-15-000000">
+  <img alt="SQLite" src="https://img.shields.io/badge/SQLite-Drizzle-003b57">
+  <img alt="Local-first" src="https://img.shields.io/badge/local--first-sim-16a34a">
+</p>
 
-Arquitetura completa e decisões de projeto: [ARQUITETURA.md](./ARQUITETURA.md).
+```
+promoções → filtros + IA → link de afiliado → mensagem → fila → grupos
+```
 
-## Pré-requisitos
+---
 
-- **Node 20+** (recomendado 22) — <https://nodejs.org>
-- **pnpm** via corepack (vem com o Node): `corepack enable`
-- **Docker** (opcional no local, só para subir a Evolution API):
-  Docker Desktop no Windows/macOS, Docker Engine no Linux
-- **openssl** para gerar tokens (nativo no macOS/Linux; no Windows use o
-  Git Bash, que já o inclui, ou o WSL)
+## 🚀 Começando
 
-## Rodando local (passo a passo)
+> ### 👉 **É a primeira vez? Vá direto para o [Guia de instalação](docs/instalacao.md).**
+>
+> Passo a passo com prints do que clicar, escrito para quem **não programa**.
+> Do zero ao agente funcionando em ~30 minutos.
 
-1. **Clone o repositório**
+Se você já instalou:
 
-   ```bash
-   git clone https://github.com/SEU_USUARIO/scrapper-afiliado.git
-   cd scrapper-afiliado
-   ```
+| Quero… | Faça |
+|---|---|
+| **Ligar o agente** | Dois cliques em `start.cmd` (Windows) ou `bash start.sh` |
+| **Aprender a usar o painel** | [Guia de uso](docs/guia-de-uso.md) |
+| **Resolver um problema** | [Quando algo dá errado](docs/guia-de-uso.md#6-quando-algo-dá-errado) |
+| **Entender como funciona por dentro** | [Arquitetura](docs/arquitetura.md) |
 
-2. **Instale as dependências**
+---
 
-   ```bash
-   corepack enable   # uma vez por máquina; no Windows, rode o terminal como admin
-   pnpm install
-   ```
+## 📚 Documentação
 
-3. **Crie o `.env`**
+| Documento | Para quem | Conteúdo |
+|---|---|---|
+| **[Instalação](docs/instalacao.md)** | Quem vai usar | Instalar Node e Docker, baixar o projeto, rodar o instalador |
+| **[Guia de uso](docs/guia-de-uso.md)** | Quem vai usar | Conectar WhatsApp e conta de afiliado, operar o dia a dia, regras anti-ban, solução de problemas |
+| **[Arquitetura](docs/arquitetura.md)** | Quem vai mexer no código | Decisões de projeto, componentes, riscos, roadmap |
 
-   ```bash
-   cp .env.example .env      # Windows (cmd): copy .env.example .env
-   ```
+---
 
-   O `.env.example` documenta todas as variáveis.
+## ✨ O que ele faz
 
-4. **Gere os segredos** e cole no `.env` (`AGENT_TOKEN`,
-   `SESSION_ENCRYPTION_KEY`, `EVOLUTION_API_KEY`):
+- **Coleta de três fontes** — API oficial do Mercado Livre, scraping da página
+  de ofertas e uma lista manual de URLs coladas no painel.
+- **Filtra e ranqueia** — desconto mínimo, faixa de preço, bloqueio de
+  vendedores, sem repetir o mesmo produto; a IA escolhe as melhores ofertas.
+- **Gera o link de afiliado** — vinculado à sua etiqueta, para a comissão ser
+  sua, com renovação automática de sessão.
+- **Escreve a mensagem** — Gemini compõe o texto de venda; se a IA falhar, um
+  modelo determinístico assume e o disparo nunca trava.
+- **Posta com cadência humana** — uma mensagem por vez, intervalos com
+  variação aleatória, só na janela de horário que você definir.
+- **Pausa sozinho no primeiro sinal de risco** — se o WhatsApp cair ou
+  responder de forma suspeita, tudo para até você revisar.
+- **Painel web completo** — diagnóstico do que falta configurar, fila de
+  aprovação, QR code do WhatsApp, grupos, filtros e credenciais.
 
-   ```bash
-   openssl rand -hex 32   # rode uma vez para cada variável
-   ```
+---
 
-5. **Instale o Chromium do Playwright** (usado pelo scraper e pelo login no
-   portal de afiliados):
+## 🧩 Como está montado
 
-   ```bash
-   pnpm --filter @ml-agent/agent exec playwright install chromium
-   ```
+```
+┌─────────────┐        REST + token        ┌──────────────┐
+│  Dashboard  │ ─────────────────────────► │    Agente    │
+│  Next.js    │                            │   Fastify    │
+│  :3000      │ ◄───────────────────────── │   :3001      │
+└─────────────┘                            └──────┬───────┘
+                                                  │
+                              ┌───────────────────┼───────────────────┐
+                              ▼                   ▼                   ▼
+                        ┌──────────┐      ┌──────────────┐    ┌─────────────┐
+                        │  SQLite  │      │ Evolution API│    │ Mercado     │
+                        │ (Drizzle)│      │  (WhatsApp)  │    │ Livre + IA  │
+                        └──────────┘      └──────────────┘    └─────────────┘
+```
 
-   No Linux, se faltarem libs de sistema, troque por
-   `... playwright install --with-deps chromium` (pede sudo).
+| Pasta | O que é |
+|---|---|
+| `apps/agent` | Servidor Fastify + agendador. Fala com ML, IA e WhatsApp |
+| `apps/dashboard` | Painel Next.js (App Router). Stateless — tudo passa pelo agente |
+| `packages/core` | Tipos, schemas Zod e configuração compartilhada |
+| `packages/db` | Schema Drizzle e migrações do SQLite |
+| `docs` | Documentação |
 
-6. **Suba a Evolution API** (WhatsApp) com Docker:
+**Stack:** TypeScript · pnpm + Turborepo · Fastify · Next.js 15 · Drizzle +
+SQLite · Playwright · Vercel AI SDK (Gemini, BYOK) · Evolution API · Docker
 
-   ```bash
-   docker compose up -d evolution
-   ```
+---
 
-   Localmente, exponha a porta dela para o agente: crie um
-   `docker-compose.override.yml` com
+## ⚠️ Avisos importantes
 
-   ```yaml
-   services:
-     evolution:
-       ports:
-         - "127.0.0.1:8080:8080"
-   ```
+> **Risco real de banimento do número de WhatsApp.** A Evolution API usa
+> Baileys, um cliente não-oficial contra os Termos de Serviço do WhatsApp — e
+> desde 2026 a Meta endureceu a detecção. Use um **número dedicado e
+> descartável**, nunca o pessoal, aquecido por 1–2 semanas de uso manual.
 
-   e mantenha `EVOLUTION_URL=http://localhost:8080` no `.env`. (Em produção a
-   Evolution fica sem porta pública — veja o `docker-compose.yml`.)
-
-7. **Crie o banco** (SQLite, arquivo local — zero setup):
-
-   ```bash
-   pnpm db:generate && pnpm db:migrate
-   ```
-
-8. **Suba tudo em modo dev** (agente + dashboard):
-
-   ```bash
-   pnpm dev
-   ```
-
-9. **Abra o dashboard**: <http://localhost:3000> (o agente fica em
-   <http://localhost:3001>).
-
-10. **Configure pelo dashboard**:
-    - **WhatsApp**: página `/whatsapp` → escaneie o QR code com o número
-      **dedicado** (nunca o seu pessoal — veja os avisos abaixo);
-    - **Portal de afiliados**: inicie o login do portal do Mercado Livre e
-      aprove o 2FA quando solicitado (a sessão fica criptografada em disco);
-    - **Gemini**: cole sua chave (gere em <https://aistudio.google.com/apikey>)
-      nas configurações — ou direto em `GOOGLE_GENERATIVE_AI_API_KEY` no `.env`.
-
-    Comece pelo modo **lista manual + fila de aprovação**: cole URLs de
-    produto e valide o pipeline de ponta a ponta antes de ligar as fontes
-    automáticas.
-
-## Deploy
-
-### Dashboard → Vercel
-
-1. Importe o repositório na Vercel com **Root Directory = `apps/dashboard`**.
-2. Configure as variáveis de ambiente:
-   - `AGENT_URL` — URL pública do agente (ex.: `https://agente.seudominio.com`);
-   - `AGENT_TOKEN` — o mesmo valor do `.env` da VPS.
-3. Deploy. O dashboard é stateless (sem banco próprio); tudo passa pela API do
-   agente, então o free tier basta.
-
-### Agente → VPS
-
-O agente + Evolution rodam via Docker Compose numa VPS (ex.: Hostinger), com
-Caddy na frente fazendo HTTPS. Guia completo em ~6 comandos:
-[deploy/vps-setup.md](./deploy/vps-setup.md).
-
-## Avisos importantes
-
-- **Risco real de banimento do número de WhatsApp.** A Evolution API usa
-  Baileys por baixo, um cliente não-oficial contra os Termos de Serviço do
-  WhatsApp — e desde 2026 a Meta endureceu a detecção. Use um **número
-  dedicado e descartável** (nunca o pessoal), aquecido com 1–2 semanas de uso
-  manual antes de automatizar.
 - **Cadência humana, sempre.** Poucas mensagens por dia por grupo, intervalos
-  com jitter, horário comercial, nada de rajadas. Envie apenas para grupos
+  com variação, horário comercial, nada de rajadas. Envie apenas para grupos
   **seus**, cuja audiência optou por receber ofertas — denúncias são o
-  principal gatilho de ban. O agente pausa tudo ao primeiro sinal de
-  desconexão/restrição.
-- **A geração de link de afiliado usa um endpoint interno do portal** (não há
-  API oficial) — área cinzenta nos termos do programa e sujeita a quebrar sem
-  aviso. Volume baixo e comportamento de usuário normal mantêm o perfil
-  discreto; o dashboard alerta quando a sessão expira ou o endpoint muda.
-- **Plano B oficial:** um canal/grupo no Telegram via Bot API é 100% permitido
-  e sem risco — o transporte é um adaptador, então adicionar Telegram depois
-  custa pouco.
-- **Dados sensíveis:** o SQLite guarda cookies de sessão do portal. Não
-  commite `.env` nem `data/`, e criptografe qualquer backup antes de tirá-lo
-  da máquina/VPS.
+  principal gatilho de banimento.
+- **A geração de link usa um endpoint interno do portal** (não existe API
+  oficial). É área cinzenta nos termos do programa e pode quebrar sem aviso.
+- **Plano B oficial:** um canal no Telegram via Bot API é 100% permitido. O
+  transporte é um adaptador, então adicionar Telegram depois custa pouco.
+- **Dados sensíveis:** o SQLite guarda cookies de sessão do portal. Nunca
+  commite `.env` nem `data/`, e criptografe backups antes de tirá-los da
+  máquina.
+
+---
+
+## 🛠️ Desenvolvimento
+
+<details>
+<summary>Instalação manual, sem os scripts (clique para expandir)</summary>
+
+**Pré-requisitos:** Node 20+, pnpm via corepack, Docker (para a Evolution),
+openssl.
+
+```bash
+corepack enable
+pnpm install
+
+# Configuração: DOIS arquivos, com o mesmo AGENT_TOKEN nos dois
+cp .env.example apps/agent/.env
+cp apps/dashboard/.env.example apps/dashboard/.env.local
+openssl rand -hex 32   # rode para AGENT_TOKEN, SESSION_ENCRYPTION_KEY e EVOLUTION_API_KEY
+
+pnpm --filter @ml-agent/agent exec playwright install chromium
+docker compose up -d evolution      # exponha 127.0.0.1:8080 via override local
+pnpm db:generate && pnpm db:migrate
+pnpm dev                            # agente :3001 + dashboard :3000
+```
+
+</details>
+
+<details>
+<summary>Comandos úteis</summary>
+
+| Comando | O que faz |
+|---|---|
+| `pnpm dev` | Sobe agente e dashboard em modo watch |
+| `pnpm build` | Build de produção de todos os pacotes |
+| `pnpm typecheck` | Verificação de tipos no monorepo |
+| `pnpm db:generate` | Gera migração a partir do schema Drizzle |
+| `pnpm db:migrate` | Aplica as migrações no SQLite |
+
+</details>
+
+<details>
+<summary>Deploy (agente em servidor)</summary>
+
+O dashboard é stateless e vai para a Vercel sem esforço (`AGENT_URL` +
+`AGENT_TOKEN`). O **agente não roda em serverless** — precisa de processo
+permanente para o socket do WhatsApp, cron e SQLite em disco. Use uma VPS ou
+máquina sempre ligada; veja [deploy/vps-setup.md](deploy/vps-setup.md).
+
+⚠️ Em servidor headless, o login do portal de afiliados (que abre um Chromium
+**visível**) exige `xvfb` ou um fluxo alternativo de cookies.
+
+</details>
+
+---
+
+<p align="center">
+  <sub>Uso pessoal. Respeite os termos de serviço das plataformas envolvidas.</sub>
+</p>

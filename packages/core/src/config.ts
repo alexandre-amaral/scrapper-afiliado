@@ -16,7 +16,7 @@ const agentEnvSchema = z.object({
   ML_CLIENT_ID: z.string().optional().default(""),
   ML_CLIENT_SECRET: z.string().optional().default(""),
   ML_REFRESH_TOKEN: z.string().optional().default(""),
-  // Etiqueta de afiliado usada no linkbuilder (ex.: aujo1529556).
+  // Etiqueta de afiliado usada no linkbuilder (ex.: abcd1234567).
   ML_AFFILIATE_TAG: z.string().optional().default(""),
   EVOLUTION_URL: z.string().url().default("http://localhost:8080"),
   EVOLUTION_API_KEY: z.string().default(""),

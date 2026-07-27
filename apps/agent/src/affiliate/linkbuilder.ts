@@ -141,7 +141,7 @@ function resolveTag(env: AgentEnv): string {
   const tag = env.ML_AFFILIATE_TAG?.trim();
   if (!tag) {
     throw new SessionExpiredError(
-      "ML_AFFILIATE_TAG não configurada — defina a etiqueta de afiliado (ex.: aujo1529556) " +
+      "ML_AFFILIATE_TAG não configurada — defina a etiqueta de afiliado (ex.: abcd1234567) " +
         "nas Credenciais do dashboard ou no .env.",
     );
   }

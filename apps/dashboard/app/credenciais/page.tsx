@@ -95,7 +95,7 @@ export default async function CredenciaisPage() {
                 type="text"
                 name="mlAffiliateTag"
                 defaultValue={cred.affiliateTag}
-                placeholder="ex.: aujo1529556"
+                placeholder="ex.: abcd1234567"
                 className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600"
               />
               <p className="mt-1 text-xs text-neutral-500">

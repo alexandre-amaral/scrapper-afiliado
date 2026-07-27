@@ -1,6 +1,7 @@
 import { togglePause, triggerCollect } from "@/app/actions";
+import { DiagnosticsPanel } from "@/components/diagnostics-panel";
 import { SetupHint } from "@/components/setup-hint";
-import { tryAgent, type Overview } from "@/lib/agent-api";
+import { tryAgent, type Diagnostics, type Overview } from "@/lib/agent-api";
 import { formatDateTime, truncate } from "@/lib/format";
 import {
   affiliateColors,
@@ -33,7 +34,11 @@ function Card({
 }
 
 export default async function OverviewPage() {
-  const result = await tryAgent<Overview>("/overview");
+  // Em paralelo: o diagnóstico não deve atrasar a visão geral.
+  const [result, diagnostics] = await Promise.all([
+    tryAgent<Overview>("/overview"),
+    tryAgent<Diagnostics>("/diagnostics"),
+  ]);
 
   if (!result.ok) {
     return (
@@ -59,6 +64,11 @@ export default async function OverviewPage() {
           </button>
         </form>
       </div>
+
+      {/* Diagnóstico primeiro: é o que responde "por que não está enviando?". */}
+      {diagnostics.ok ? (
+        <DiagnosticsPanel diagnostics={diagnostics.data} />
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Card title="WhatsApp">

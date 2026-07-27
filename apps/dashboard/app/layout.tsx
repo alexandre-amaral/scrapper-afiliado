@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { NavLinks } from "@/components/nav-links";
+import { PausedBanner } from "@/components/paused-banner";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,9 +27,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             </div>
             <NavLinks />
           </aside>
-          <main className="min-w-0 flex-1 p-6 md:p-10">
-            <div className="mx-auto w-full max-w-5xl">{children}</div>
-          </main>
+          <div className="flex min-w-0 flex-1 flex-col">
+            {/* Aviso de pausa: precede o conteúdo em todas as telas. */}
+            <PausedBanner />
+            <main className="min-w-0 flex-1 p-6 md:p-10">
+              <div className="mx-auto w-full max-w-5xl">{children}</div>
+            </main>
+          </div>
         </div>
       </body>
     </html>

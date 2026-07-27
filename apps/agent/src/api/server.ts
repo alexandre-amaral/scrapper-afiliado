@@ -112,6 +112,100 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
     return { whatsapp, affiliateSession, paused: settings.paused, nextMessages, lastSent, lastRuns };
   });
 
+  // --- Diagnóstico: "está tudo pronto para operar?" ---
+  // Centraliza aqui (e não no dashboard) porque a regra do que é
+  // pré-requisito é conhecimento do pipeline, não da tela. Cada item traz o
+  // texto do que fazer, para o operador resolver sem precisar de suporte.
+  app.get("/diagnostics", async () => {
+    const resolved = await resolveEnv(db, env);
+    const [waStatus, affiliate, credentials, enabledGroups, settings] = await Promise.all([
+      sender.getStatus().catch(() => "disconnected" as const),
+      getSessionStatus(resolved).catch(() => "unknown" as const),
+      getCredentialsStatus(db, env),
+      db.select().from(groups).where(eq(groups.enabled, true)),
+      getSettings(db),
+    ]);
+
+    // ok: pronto | warn: funciona, mas atenção | error: bloqueia a operação
+    const checks = [
+      {
+        id: "whatsapp",
+        label: "WhatsApp conectado",
+        status: waStatus === "connected" ? "ok" : "error",
+        detail:
+          waStatus === "connected"
+            ? "Número pareado e ativo."
+            : "Sem WhatsApp conectado — nada será enviado.",
+        action: waStatus === "connected" ? null : "Vá em WhatsApp e escaneie o QR Code.",
+        href: "/whatsapp",
+      },
+      {
+        id: "affiliate",
+        label: "Conta de afiliado",
+        status: affiliate === "valid" ? "ok" : affiliate === "expired" ? "error" : "warn",
+        detail:
+          affiliate === "valid"
+            ? "Sessão do portal válida."
+            : affiliate === "expired"
+              ? "A sessão expirou — links de afiliado não serão gerados."
+              : "Não foi possível confirmar a sessão.",
+        action:
+          affiliate === "valid" ? null : "Vá em Credenciais e clique em Conectar conta de afiliado.",
+        href: "/credenciais",
+      },
+      {
+        id: "affiliateTag",
+        label: "Etiqueta de afiliado",
+        status: credentials.affiliateTag ? "ok" : "error",
+        detail: credentials.affiliateTag
+          ? `Usando a etiqueta ${credentials.affiliateTag}.`
+          : "Sem etiqueta, nenhum link é gerado e você não recebe comissão.",
+        action: credentials.affiliateTag
+          ? null
+          : "Vá em Credenciais e preencha a etiqueta do portal de afiliados.",
+        href: "/credenciais",
+      },
+      {
+        id: "gemini",
+        label: "Chave da Gemini",
+        status: credentials.gemini.configured ? "ok" : "warn",
+        detail: credentials.gemini.configured
+          ? "IA configurada para escrever as mensagens."
+          : "Sem a chave, as mensagens usam um texto padrão mais simples.",
+        action: credentials.gemini.configured
+          ? null
+          : "Vá em Credenciais e cole a chave da Gemini.",
+        href: "/credenciais",
+      },
+      {
+        id: "groups",
+        label: "Grupos ativos",
+        status: enabledGroups.length > 0 ? "ok" : "error",
+        detail:
+          enabledGroups.length > 0
+            ? `${enabledGroups.length} grupo(s) recebendo mensagens.`
+            : "Nenhum grupo ligado — as mensagens não têm para onde ir.",
+        action:
+          enabledGroups.length > 0 ? null : "Vá em Grupos, sincronize e ligue ao menos um.",
+        href: "/grupos",
+      },
+      {
+        id: "paused",
+        label: "Disparos ativos",
+        status: settings.paused ? "warn" : "ok",
+        detail: settings.paused
+          ? "O agente está pausado — nada será enviado até retomar."
+          : `Enviando entre ${settings.sendWindowStart} e ${settings.sendWindowEnd}.`,
+        action: settings.paused ? "Clique em Retomar no cartão de Disparos." : null,
+        href: "/",
+      },
+    ] as const;
+
+    const errors = checks.filter((c) => c.status === "error").length;
+    const warnings = checks.filter((c) => c.status === "warn").length;
+    return { ready: errors === 0, errors, warnings, checks };
+  });
+
   // --- Ofertas recentes ---
   app.get("/offers", async (req, reply) => {
     const query = z

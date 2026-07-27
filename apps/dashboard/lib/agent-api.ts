@@ -100,6 +100,27 @@ export interface QrResponse {
   qr: string | null;
 }
 
+// ----- Diagnóstico -----
+
+export type CheckStatus = "ok" | "warn" | "error";
+
+export interface DiagnosticCheck {
+  id: string;
+  label: string;
+  status: CheckStatus;
+  detail: string;
+  /** O que o operador deve fazer; null quando está tudo certo. */
+  action: string | null;
+  href: string;
+}
+
+export interface Diagnostics {
+  ready: boolean;
+  errors: number;
+  warnings: number;
+  checks: DiagnosticCheck[];
+}
+
 // ----- Credenciais -----
 
 export interface CredentialsStatus {

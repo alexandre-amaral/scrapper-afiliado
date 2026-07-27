@@ -13,6 +13,9 @@ dist/
 .env.local
 .env.*.local
 
+# gerado pelo setup.sh (expõe a Evolution só no loopback, uso local)
+docker-compose.override.yml
+
 # runtime data
 data/
 *.sqlite

@@ -1,0 +1,87 @@
+# ============================================================================
+# docker-compose.prod.yml — pilha completa na VPS
+#
+#   agente + painel + Evolution (WhatsApp) + Caddy (HTTPS)
+#
+# Diferente do docker-compose.yml (que serve ao desenvolvimento local), aqui:
+#   - o painel também sobe em container, com login por senha;
+#   - o Caddy termina o TLS e é o ÚNICO com portas públicas;
+#   - agente e Evolution ficam só na rede interna — nem porta de loopback.
+#
+# Subir:      docker compose -f docker-compose.prod.yml up -d --build
+# Migrações:  docker compose -f docker-compose.prod.yml exec agent pnpm db:migrate
+# Logs:       docker compose -f docker-compose.prod.yml logs -f agent
+#
+# As variáveis vêm do arquivo .env.prod (veja deploy/hostinger.md).
+# ============================================================================
+
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: apps/agent/Dockerfile
+    env_file: .env.prod
+    restart: unless-stopped
+    depends_on:
+      - evolution
+    volumes:
+      # SQLite + sessão criptografada do portal de afiliados
+      - ./data:/app/data
+    networks:
+      - internal
+    # Sem `ports`: quem fala com o agente é o painel, pela rede interna.
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: apps/dashboard/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - agent
+    environment:
+      # Alcança o agente pelo nome do serviço na rede interna do compose.
+      - AGENT_URL=http://agent:3001
+      - AGENT_TOKEN=${AGENT_TOKEN:?defina AGENT_TOKEN no .env.prod}
+      - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:?defina DASHBOARD_PASSWORD no .env.prod}
+      - DASHBOARD_SESSION_SECRET=${DASHBOARD_SESSION_SECRET:?defina DASHBOARD_SESSION_SECRET no .env.prod}
+    networks:
+      - internal
+    # Sem `ports`: quem expõe é o Caddy.
+
+  evolution:
+    image: evoapicloud/evolution-api:latest
+    restart: unless-stopped
+    environment:
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:?defina EVOLUTION_API_KEY no .env.prod}
+    volumes:
+      - evolution_instances:/evolution/instances
+    networks:
+      - internal
+    # Sem `ports`: a Evolution NUNCA é exposta publicamente.
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificados emitidos pelo Let's Encrypt — persistir evita reemitir a
+      # cada restart e bater no limite de emissões deles.
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - DOMINIO=${DOMINIO:?defina DOMINIO no .env.prod}
+    depends_on:
+      - dashboard
+    networks:
+      - internal
+
+networks:
+  internal:
+
+volumes:
+  evolution_instances:
+  caddy_data:
+  caddy_config:

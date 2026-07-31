@@ -1,28 +1,35 @@
 # ============================================================================
-# deploy/Caddyfile — reverse proxy do agente com TLS automático (Let's Encrypt)
+# deploy/Caddyfile — HTTPS automático na frente do painel
 #
-# 1. DNS: crie um registro A `agente.SEUDOMINIO.com` apontando para o IP da
-#    VPS. Aguarde propagar (dig agente.SEUDOMINIO.com) antes de subir o Caddy —
-#    o certificado só é emitido se o domínio resolver para a máquina.
+# O Caddy emite e renova o certificado Let's Encrypt sozinho, desde que o
+# domínio em DOMINIO resolva para o IP desta máquina e as portas 80 e 443
+# estejam abertas.
 #
-# 2. Como rodar o Caddy (escolha UMA opção):
+# Usado por docker-compose.prod.yml, que injeta DOMINIO a partir do .env.prod.
 #
-#    a) Serviço do sistema (recomendado — mais simples com localhost):
-#       sudo apt install -y caddy
-#       sudo cp deploy/Caddyfile /etc/caddy/Caddyfile   # edite o domínio!
-#       sudo systemctl reload caddy
-#
-#    b) Docker: o container precisa alcançar a porta 3001 do host, então use
-#       network_mode host:
-#       docker run -d --name caddy --network host --restart unless-stopped \
-#         -v $PWD/deploy/Caddyfile:/etc/caddy/Caddyfile \
-#         -v caddy_data:/data caddy:2
-#
-# 3. Libere as portas 80 e 443 no firewall (ufw allow 80,443/tcp).
-#
-# Depois, na Vercel, configure AGENT_URL=https://agente.SEUDOMINIO.com
+# ATENÇÃO: aqui publica-se o PAINEL, nunca o agente. O agente fica só na rede
+# interna do compose — expor a API dele à internet daria acesso direto ao
+# WhatsApp e às credenciais a quem tivesse o token.
 # ============================================================================
 
-agente.SEUDOMINIO.com {
-	reverse_proxy localhost:3001
+{$DOMINIO} {
+	reverse_proxy dashboard:3000
+
+	encode gzip
+
+	header {
+		# Impede que o navegador tente HTTP depois da primeira visita.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# O painel não deve ser embutido em iframe de outro site (clickjacking).
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Não anuncia a versão do servidor.
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
 }

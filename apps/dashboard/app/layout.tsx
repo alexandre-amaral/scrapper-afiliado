@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { NavLinks } from "@/components/nav-links";
-import { PausedBanner } from "@/components/paused-banner";
 import "./globals.css";
 
+// Layout raiz: só o esqueleto do documento. A barra lateral e o aviso de pausa
+// ficam em (painel)/layout.tsx, para que a tela de login — que está fora desse
+// grupo — não herde a navegação de quem já entrou.
 export const metadata: Metadata = {
   title: {
     default: "Agente ML Afiliados",
@@ -11,30 +12,14 @@ export const metadata: Metadata = {
   },
   description:
     "Painel de controle do agente de ofertas do Mercado Livre para WhatsApp.",
+  icons: { icon: "/icon.svg" },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="pt-BR">
       <body className="min-h-screen bg-neutral-950 font-sans text-neutral-100 antialiased">
-        <div className="flex min-h-screen">
-          <aside className="hidden w-56 shrink-0 border-r border-neutral-800 bg-neutral-950 p-4 md:flex md:flex-col">
-            <div className="mb-6 px-3">
-              <p className="text-sm font-semibold tracking-tight text-neutral-100">
-                Agente ML Afiliados
-              </p>
-              <p className="text-xs text-neutral-500">Painel de controle</p>
-            </div>
-            <NavLinks />
-          </aside>
-          <div className="flex min-w-0 flex-1 flex-col">
-            {/* Aviso de pausa: precede o conteúdo em todas as telas. */}
-            <PausedBanner />
-            <main className="min-w-0 flex-1 p-6 md:p-10">
-              <div className="mx-auto w-full max-w-5xl">{children}</div>
-            </main>
-          </div>
-        </div>
+        {children}
       </body>
     </html>
   );

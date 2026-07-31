@@ -43,9 +43,10 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-# O standalone traz server.js + o node_modules mínimo, preservando a estrutura
-# de diretórios do monorepo (daí o caminho apps/dashboard mais abaixo).
-COPY --from=build --chown=node:node /app/.next/standalone ./
+# O standalone é gerado DENTRO do app (apps/dashboard/.next/standalone), não na
+# raiz do monorepo — mas seu conteúdo preserva a estrutura de diretórios do
+# workspace, e por isso o server.js acaba em apps/dashboard/server.js aqui.
+COPY --from=build --chown=node:node /app/apps/dashboard/.next/standalone ./
 COPY --from=build --chown=node:node /app/apps/dashboard/.next/static ./apps/dashboard/.next/static
 COPY --from=build --chown=node:node /app/apps/dashboard/public ./apps/dashboard/public
 

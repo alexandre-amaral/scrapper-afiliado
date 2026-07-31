@@ -8,11 +8,17 @@
 #   - o Caddy termina o TLS e é o ÚNICO com portas públicas;
 #   - agente e Evolution ficam só na rede interna — nem porta de loopback.
 #
-# Subir:      docker compose -f docker-compose.prod.yml up -d --build
-# Migrações:  docker compose -f docker-compose.prod.yml exec agent pnpm db:migrate
-# Logs:       docker compose -f docker-compose.prod.yml logs -f agent
+# Sempre com --env-file .env.prod:
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml exec agent pnpm db:migrate
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml logs -f agent
 #
-# As variáveis vêm do arquivo .env.prod (veja deploy/hostinger.md).
+# O --env-file é obrigatório: o `env_file:` do serviço só injeta variáveis
+# DENTRO do container, enquanto os blocos `environment:` abaixo são
+# interpolados pelo compose ANTES disso — e ele só lê `.env` por padrão.
+# Sem a flag, o build falha reclamando de AGENT_TOKEN ausente.
+#
+# Na VPS, o atalho `./deploy.sh` já embute a flag.
 # ============================================================================
 
 services:

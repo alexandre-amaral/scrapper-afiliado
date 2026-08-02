@@ -29,7 +29,7 @@ COPY apps/agent/package.json apps/agent/
 COPY packages/core/package.json packages/core/
 COPY packages/db/package.json packages/db/
 RUN pnpm install --frozen-lockfile \
-    && node -e "require('fs').writeFileSync('/playwright-version', require('playwright/package.json').version)"
+    && node -e "const p=require.resolve('playwright/package.json',{paths:['/app/apps/agent']}); require('fs').writeFileSync('/playwright-version', require(p).version)"
 
 # 2) Código-fonte e build (turbo resolve a ordem core -> db -> agent)
 COPY apps/agent apps/agent

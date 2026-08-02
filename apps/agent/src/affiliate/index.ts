@@ -11,4 +11,9 @@ export {
   generateAffiliateLinks,
   type AffiliateSessionStatus,
 } from "./linkbuilder.js";
-export { refreshSessionInteractive, tryRefreshSessionHeadless } from "./portal-login.js";
+export {
+  canOpenVisibleBrowser,
+  INTERACTIVE_UNAVAILABLE_MSG,
+  refreshSessionInteractive,
+  tryRefreshSessionHeadless,
+} from "./portal-login.js";

@@ -105,13 +105,27 @@ precisa ser feito uma vez.
 
 1. Menu → **Credenciais**.
 2. Clique em **Conectar conta de afiliado**.
-3. **Uma janela de navegador vai abrir sozinha.** Faça login no Mercado Livre
-   normalmente e aprove o código de verificação (2FA) se pedir.
+3. **Uma janela de navegador vai abrir sozinha na máquina onde o agente
+   roda** (não no celular). Faça login no Mercado Livre normalmente e aprove
+   o código de verificação (2FA) se pedir.
 4. Assim que entrar, pode fechar essa janela. O painel mostra
    **sessão válida**.
 
 > Você tem 5 minutos para completar o login. Se demorar, é só clicar em
 > "Conectar" de novo.
+
+#### Se o agente está numa VPS (servidor sem tela)
+
+O botão **Conectar** não abre janela no seu computador — ele tentaria abrir
+no servidor, onde ninguém vê. Por isso o painel esconde esse botão e mostra
+**Tentar renovar sessão**.
+
+- Se já houve um login antes e a sessão só expirou, use **Tentar renovar
+  sessão**.
+- Se nunca conectou (ou a renovação falhar): faça o login numa instalação
+  **local com tela**, depois copie a pasta `data/` do agente
+  (`affiliate-session.enc` e `playwright-profile`) para a VPS, com a **mesma**
+  `SESSION_ENCRYPTION_KEY`.
 
 ### 3.3 Informar a etiqueta de afiliado
 
@@ -246,8 +260,11 @@ Quase sempre é a **etiqueta de afiliado** vazia. Confira em **Credenciais**
 
 ### "Sessão do portal expirada"
 
-O login no Mercado Livre venceu. **Credenciais** → **Conectar conta de
-afiliado** → faça login de novo.
+O login no Mercado Livre venceu. Em **Credenciais**:
+
+- Com tela (local): **Conectar conta de afiliado** → faça login de novo.
+- Em VPS sem tela: **Tentar renovar sessão**. Se falhar, copie a pasta
+  `data/` de um login feito no computador (veja [3.2](#32-conectar-a-conta-de-afiliado)).
 
 ### As mensagens não são enviadas
 

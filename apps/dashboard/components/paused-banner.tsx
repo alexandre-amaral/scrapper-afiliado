@@ -1,4 +1,4 @@
-import { togglePause } from "@/app/actions";
+import { ResumePausedButton } from "@/components/status-strip-actions";
 import { tryAgent, type Overview } from "@/lib/agent-api";
 
 /**
@@ -34,15 +34,7 @@ export async function PausedBanner() {
             </p>
           </div>
         </div>
-        <form action={togglePause}>
-          <input type="hidden" name="paused" value="true" />
-          <button
-            type="submit"
-            className="rounded-lg bg-warning px-4 py-1.5 text-sm font-semibold text-bg transition-colors hover:brightness-110"
-          >
-            Retomar envios
-          </button>
-        </form>
+        <ResumePausedButton />
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { togglePause, triggerCollect } from "@/app/actions";
+import { StatusStripActions } from "@/components/status-strip-actions";
 import { tryAgent, type Overview } from "@/lib/agent-api";
 import {
   affiliateColors,
@@ -7,7 +7,6 @@ import {
   whatsappColors,
   whatsappLabels,
 } from "@/lib/labels";
-import { ui } from "@/lib/ui";
 
 /**
  * Assinatura do console: faixa de status operacional no topo do painel.
@@ -79,21 +78,7 @@ export async function StatusStrip({
           ))}
         </div>
 
-        {variant === "full" ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <form action={togglePause}>
-              <input type="hidden" name="paused" value={String(paused)} />
-              <button type="submit" className={ui.btnGhost}>
-                {paused ? "Retomar" : "Pausar"}
-              </button>
-            </form>
-            <form action={triggerCollect}>
-              <button type="submit" className={ui.btnPrimary}>
-                Coletar agora
-              </button>
-            </form>
-          </div>
-        ) : null}
+        {variant === "full" ? <StatusStripActions paused={paused} /> : null}
       </div>
     </div>
   );

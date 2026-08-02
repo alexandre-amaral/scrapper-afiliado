@@ -136,6 +136,10 @@ export interface CredentialsStatus {
   };
   affiliateTag: string;
   sensitiveFields: string[];
+  /** URL pública do agente para o operador autorizar a API oficial do ML. */
+  mlOAuthStartUrl?: string;
+  /** redirect_uri a cadastrar no DevCenter do ML. */
+  mlOAuthRedirectUri?: string;
 }
 
 export interface AffiliateLoginState {
@@ -149,6 +153,8 @@ export interface AffiliateLoginState {
 export interface AffiliateStatus {
   session: AffiliateSessionStatus;
   login: AffiliateLoginState;
+  /** false em VPS headless — login interativo não abre janela visível. */
+  interactiveAvailable?: boolean;
 }
 
 // ----- Cliente -----
@@ -198,8 +204,19 @@ export async function agentFetch<T>(
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    let detail = body;
+    try {
+      const parsed = JSON.parse(body) as { error?: unknown };
+      if (typeof parsed.error === "string" && parsed.error.trim()) {
+        detail = parsed.error;
+      }
+    } catch {
+      // corpo não-JSON — mantém o texto cru
+    }
     throw new AgentApiError(
-      `Agente respondeu ${res.status} em ${path}${body ? `: ${body}` : ""}`,
+      detail
+        ? detail
+        : `Agente respondeu ${res.status} em ${path}`,
       res.status,
     );
   }

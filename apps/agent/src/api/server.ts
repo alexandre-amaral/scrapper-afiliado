@@ -10,7 +10,13 @@ import {
   type MessageStatus,
 } from "@ml-agent/core";
 import { groups, messages, offers, runs, type Db } from "@ml-agent/db";
-import { getSessionStatus, refreshSessionInteractive } from "../affiliate/index.js";
+import {
+  canOpenVisibleBrowser,
+  getSessionStatus,
+  INTERACTIVE_UNAVAILABLE_MSG,
+  refreshSessionInteractive,
+  tryRefreshSessionHeadless,
+} from "../affiliate/index.js";
 import { EvolutionSender, parseEvolutionWebhook } from "../whatsapp/index.js";
 import { processManualUrls, runCollection } from "../pipeline.js";
 import { getSettings, patchSettings } from "../settings.js";
@@ -25,6 +31,13 @@ type AffiliateLoginState = {
   ok: boolean | null;
   error: string | null;
 };
+
+/** Base pública do agente (OAuth no navegador do operador). */
+function publicAgentBase(agentEnv: AgentEnv): string {
+  const pub = agentEnv.PUBLIC_URL?.trim();
+  if (pub) return pub.replace(/\/+$/, "");
+  return `http://localhost:${agentEnv.AGENT_PORT}`;
+}
 
 export interface ServerCtx {
   env: AgentEnv;
@@ -159,10 +172,18 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
           affiliate === "valid"
             ? "Sessão do portal válida."
             : affiliate === "expired"
-              ? "A sessão expirou — links de afiliado não serão gerados."
-              : "Não foi possível confirmar a sessão.",
+              ? canOpenVisibleBrowser()
+                ? "A sessão expirou — links de afiliado não serão gerados."
+                : "A sessão expirou. Nesta VPS sem tela, use “Tentar renovar sessão” em Credenciais; se falhar, é preciso copiar a sessão de uma máquina com tela."
+              : canOpenVisibleBrowser()
+                ? "Não foi possível confirmar a sessão."
+                : "Sessão ausente. Nesta VPS o botão “Conectar” não abre navegador — renove a sessão ou copie a pasta data/ de um login feito no computador.",
         action:
-          affiliate === "valid" ? null : "Vá em Credenciais e clique em Conectar conta de afiliado.",
+          affiliate === "valid"
+            ? null
+            : canOpenVisibleBrowser()
+              ? "Vá em Credenciais e clique em Conectar conta de afiliado."
+              : "Vá em Credenciais e use “Tentar renovar sessão” (ou copie a sessão de um PC com tela).",
         href: "/credenciais",
       },
       {
@@ -383,13 +404,28 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
   });
 
   // Devolve status seguro (sensíveis viram booleano "configurado?"), nunca em claro.
-  app.get("/credentials", async () => getCredentialsStatus(db, env));
+  app.get("/credentials", async () => {
+    const status = await getCredentialsStatus(db, env);
+    const base = publicAgentBase(env);
+    return {
+      ...status,
+      // URL que o operador abre no navegador para autorizar a API oficial do ML.
+      mlOAuthStartUrl: `${base}/oauth/start`,
+      mlOAuthRedirectUri: redirectUri(env),
+    };
+  });
 
   app.patch("/credentials", async (req, reply) => {
     const parsed = credentialsPatchSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.issues });
     await saveSecrets(db, env, parsed.data as StoredSecrets);
-    return getCredentialsStatus(db, env);
+    const status = await getCredentialsStatus(db, env);
+    const base = publicAgentBase(env);
+    return {
+      ...status,
+      mlOAuthStartUrl: `${base}/oauth/start`,
+      mlOAuthRedirectUri: redirectUri(env),
+    };
   });
 
   // --- OAuth da API oficial do ML (fluxo authorization code) ---
@@ -430,9 +466,8 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
   // Mostra o redirect_uri exato a cadastrar no DevCenter (ajuda de setup).
   app.get("/oauth/redirect-uri", async () => ({ redirectUri: redirectUri(env) }));
 
-  // --- Conta de afiliado: dispara o login interativo via Playwright ---
-  // Abre um Chromium na máquina do agente para o operador logar + 2FA.
-  // Só faz sentido rodando local (não numa VPS headless).
+  // --- Conta de afiliado: login interativo (GUI) + renovação headless ---
+  // O Chromium abre NA MÁQUINA DO AGENTE — em VPS sem tela isso é no-op visual.
   const affiliateLogin: AffiliateLoginState = {
     running: false,
     startedAt: null,
@@ -444,9 +479,13 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
   app.get("/affiliate/status", async () => ({
     session: await getSessionStatus(await resolveEnv(db, env)).catch(() => "unknown" as const),
     login: affiliateLogin,
+    interactiveAvailable: canOpenVisibleBrowser(),
   }));
 
   app.post("/affiliate/connect", async (_req, reply) => {
+    if (!canOpenVisibleBrowser()) {
+      return reply.code(400).send({ error: INTERACTIVE_UNAVAILABLE_MSG });
+    }
     if (affiliateLogin.running) {
       return reply.code(409).send({ error: "Login de afiliado já em andamento." });
     }
@@ -473,6 +512,31 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
     })();
 
     return { started: true };
+  });
+
+  // Renovação silenciosa (headless): funciona na VPS se o profile Playwright
+  // ainda estiver logado. Não substitui o primeiro login com 2FA.
+  app.post("/affiliate/refresh", async (_req, reply) => {
+    try {
+      const resolved = await resolveEnv(db, env);
+      const ok = await tryRefreshSessionHeadless(resolved);
+      if (!ok) {
+        return reply.code(409).send({
+          ok: false,
+          error: canOpenVisibleBrowser()
+            ? "Não deu para renovar sozinho — a sessão pediu login de novo. Clique em Conectar conta de afiliado e complete o login na janela que abrir."
+            : "Não deu para renovar sozinho nesta VPS. É preciso fazer o login numa máquina com tela e copiar a pasta data/ (affiliate-session.enc e playwright-profile) para o servidor, usando a mesma SESSION_ENCRYPTION_KEY.",
+        });
+      }
+      return {
+        ok: true,
+        session: await getSessionStatus(resolved).catch(() => "unknown" as const),
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      app.log.error({ err }, "renovação headless de afiliado falhou");
+      return reply.code(500).send({ ok: false, error: `Falha ao renovar a sessão: ${message}` });
+    }
   });
 
   // --- WhatsApp: QR code para parear ---

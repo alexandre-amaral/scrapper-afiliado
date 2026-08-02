@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { actionErr, actionOk, type ActionResult } from "@/lib/action-result";
 import { agentFetch, type AgentSettings } from "@/lib/agent-api";
 
 function requireId(formData: FormData): string {
@@ -119,61 +120,114 @@ export async function patchGroup(formData: FormData): Promise<void> {
   revalidatePath("/grupos");
 }
 
-export async function syncGroups(): Promise<void> {
-  await agentFetch("/groups/sync", { method: "POST", body: JSON.stringify({}) });
-  revalidatePath("/grupos");
+export async function syncGroups(): Promise<ActionResult> {
+  try {
+    await agentFetch("/groups/sync", { method: "POST", body: JSON.stringify({}) });
+    revalidatePath("/grupos");
+    return actionOk("Grupos sincronizados.");
+  } catch (err) {
+    return actionErr(err);
+  }
 }
 
-export async function triggerCollect(): Promise<void> {
-  await agentFetch("/collect", { method: "POST", body: JSON.stringify({}) });
-  revalidatePath("/");
-  revalidatePath("/fontes");
+export async function triggerCollect(): Promise<ActionResult> {
+  try {
+    await agentFetch("/collect", { method: "POST", body: JSON.stringify({}) });
+    revalidatePath("/");
+    revalidatePath("/fontes");
+    return actionOk("Coleta iniciada.");
+  } catch (err) {
+    return actionErr(err);
+  }
 }
 
-export async function saveCredentials(formData: FormData): Promise<void> {
-  // Só enviamos campos preenchidos: string vazia limpa, ausente não mexe.
-  // (Sensíveis com placeholder "••••" no form vêm vazios se não editados.)
-  const payload: Record<string, string> = {};
-  const put = (key: string, formKey: string) => {
-    const raw = formData.get(formKey);
-    if (typeof raw === "string" && raw.trim() !== "") payload[key] = raw.trim();
-  };
-  // Campos que suportam "limpar" explicitamente via checkbox.
-  const clear = (key: string, formKey: string) => {
-    if (formData.get(formKey) === "on") payload[key] = "";
-  };
+export async function saveCredentials(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    // Só enviamos campos preenchidos: string vazia limpa, ausente não mexe.
+    // (Sensíveis com placeholder "••••" no form vêm vazios se não editados.)
+    const payload: Record<string, string> = {};
+    const put = (key: string, formKey: string) => {
+      const raw = formData.get(formKey);
+      if (typeof raw === "string" && raw.trim() !== "") payload[key] = raw.trim();
+    };
+    // Campos que suportam "limpar" explicitamente via checkbox.
+    const clear = (key: string, formKey: string) => {
+      if (formData.get(formKey) === "on") payload[key] = "";
+    };
 
-  put("GOOGLE_GENERATIVE_AI_API_KEY", "geminiKey");
-  clear("GOOGLE_GENERATIVE_AI_API_KEY", "clearGemini");
-  put("LLM_MODEL", "llmModel");
-  put("ML_CLIENT_ID", "mlClientId");
-  put("ML_CLIENT_SECRET", "mlClientSecret");
-  put("ML_REFRESH_TOKEN", "mlRefreshToken");
-  put("ML_AFFILIATE_TAG", "mlAffiliateTag");
+    put("GOOGLE_GENERATIVE_AI_API_KEY", "geminiKey");
+    clear("GOOGLE_GENERATIVE_AI_API_KEY", "clearGemini");
+    put("LLM_MODEL", "llmModel");
+    put("ML_CLIENT_ID", "mlClientId");
+    put("ML_CLIENT_SECRET", "mlClientSecret");
+    put("ML_REFRESH_TOKEN", "mlRefreshToken");
+    put("ML_AFFILIATE_TAG", "mlAffiliateTag");
 
-  await agentFetch("/credentials", {
-    method: "PATCH",
-    body: JSON.stringify(payload),
-  });
-  revalidatePath("/credenciais");
-  revalidatePath("/");
+    await agentFetch("/credentials", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    revalidatePath("/credenciais");
+    revalidatePath("/");
+    return actionOk("Credenciais salvas.");
+  } catch (err) {
+    return actionErr(err);
+  }
 }
 
-export async function connectAffiliate(): Promise<void> {
-  // Dispara o login interativo — abre um Chromium na máquina do agente.
-  await agentFetch("/affiliate/connect", {
-    method: "POST",
-    body: JSON.stringify({}),
-  });
-  revalidatePath("/credenciais");
+export async function connectAffiliate(
+  _prev: ActionResult | null,
+  _formData: FormData,
+): Promise<ActionResult> {
+  try {
+    // Dispara o login interativo — abre um Chromium na máquina do agente.
+    await agentFetch("/affiliate/connect", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    revalidatePath("/credenciais");
+    return actionOk(
+      "Janela de login pedida na máquina do agente. Complete o login e o 2FA por lá (até 5 minutos).",
+    );
+  } catch (err) {
+    return actionErr(err);
+  }
 }
 
-export async function togglePause(formData: FormData): Promise<void> {
-  const currentlyPaused = formData.get("paused") === "true";
-  await agentFetch("/settings", {
-    method: "PATCH",
-    body: JSON.stringify({ paused: !currentlyPaused }),
-  });
-  revalidatePath("/");
-  revalidatePath("/configuracoes");
+export async function refreshAffiliateSession(
+  _prev: ActionResult | null,
+  _formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const result = await agentFetch<{ ok: boolean; error?: string; session?: string }>(
+      "/affiliate/refresh",
+      { method: "POST", body: JSON.stringify({}) },
+    );
+    revalidatePath("/credenciais");
+    revalidatePath("/");
+    if (result.ok === false) {
+      return actionErr(result.error ?? "Não foi possível renovar a sessão.");
+    }
+    return actionOk("Sessão do portal renovada com sucesso.");
+  } catch (err) {
+    return actionErr(err);
+  }
+}
+
+export async function togglePause(formData: FormData): Promise<ActionResult> {
+  try {
+    const currentlyPaused = formData.get("paused") === "true";
+    await agentFetch("/settings", {
+      method: "PATCH",
+      body: JSON.stringify({ paused: !currentlyPaused }),
+    });
+    revalidatePath("/");
+    revalidatePath("/configuracoes");
+    return actionOk(currentlyPaused ? "Disparos retomados." : "Disparos pausados.");
+  } catch (err) {
+    return actionErr(err);
+  }
 }

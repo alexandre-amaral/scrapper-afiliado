@@ -7,12 +7,36 @@
  *    vezes ainda está logado mesmo com os cookies persistidos vencidos);
  *  - interativo: abre o navegador para o usuário completar login/2FA
  *    manualmente e captura os cookies ao final.
+ *
+ * Login interativo exige interface gráfica na máquina do AGENTE (não no
+ * navegador do dashboard). Em VPS headless sem DISPLAY, não funciona —
+ * use renovação headless ou conecte numa máquina com tela e copie a sessão.
  */
 
 import { dirname, join } from "node:path";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import type { AgentEnv } from "@ml-agent/core";
 import { saveSession, type PortalCookie } from "./session.js";
+
+/**
+ * Esta máquina consegue abrir um Chromium visível para o operador logar?
+ * Linux sem DISPLAY/WAYLAND = VPS headless típica → false.
+ * Override: AFFILIATE_INTERACTIVE=0 força off; =1 força on.
+ */
+export function canOpenVisibleBrowser(): boolean {
+  const override = process.env.AFFILIATE_INTERACTIVE?.trim();
+  if (override === "0" || override === "false") return false;
+  if (override === "1" || override === "true") return true;
+  if (process.platform === "linux") {
+    return Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+  }
+  // macOS / Windows: assume sessão gráfica local.
+  return true;
+}
+
+/** Mensagem amigável quando o login interativo é impossível nesta máquina. */
+export const INTERACTIVE_UNAVAILABLE_MSG =
+  "Este servidor não tem tela gráfica — o login de afiliado abre um navegador na máquina do agente, e numa VPS ninguém vê essa janela. Use “Tentar renovar sessão” se já conectou antes, ou faça o login numa instalação local (com tela) e copie a pasta data/ (affiliate-session.enc + playwright-profile) para a VPS.";
 
 /** Página do linkbuilder — redireciona para login quando deslogado. */
 const LINKBUILDER_URL = "https://www.mercadolivre.com.br/afiliados/linkbuilder";
@@ -102,11 +126,25 @@ export async function refreshSessionInteractive(
   env: AgentEnv,
   opts: { headless?: boolean } = {},
 ): Promise<void> {
-  const context = await chromium.launchPersistentContext(profileDir(env), {
-    headless: opts.headless ?? false,
-    viewport: { width: 1280, height: 800 },
-    locale: "pt-BR",
-  });
+  const headless = opts.headless ?? false;
+  if (!headless && !canOpenVisibleBrowser()) {
+    throw new Error(INTERACTIVE_UNAVAILABLE_MSG);
+  }
+
+  let context: BrowserContext;
+  try {
+    context = await chromium.launchPersistentContext(profileDir(env), {
+      headless,
+      viewport: { width: 1280, height: 800 },
+      locale: "pt-BR",
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    if (!headless && /display|x server|headless|no usable|browser has been closed/i.test(detail)) {
+      throw new Error(INTERACTIVE_UNAVAILABLE_MSG);
+    }
+    throw new Error(`Não foi possível abrir o navegador para login: ${detail}`);
+  }
 
   try {
     const page = context.pages()[0] ?? (await context.newPage());

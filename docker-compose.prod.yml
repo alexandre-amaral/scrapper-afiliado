@@ -54,11 +54,33 @@ services:
       - internal
     # Sem `ports`: quem expõe é o Caddy.
 
+  # Postgres exigido pela Evolution API v2 (sem ele: "Database provider invalid").
+  evolution-postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${EVOLUTION_POSTGRES_DB:-evolution}
+      - POSTGRES_USER=${EVOLUTION_POSTGRES_USER:-evolution}
+      - POSTGRES_PASSWORD=${EVOLUTION_POSTGRES_PASSWORD:?defina EVOLUTION_POSTGRES_PASSWORD no .env.prod}
+    volumes:
+      - evolution_postgres:/var/lib/postgresql/data
+    networks:
+      - internal
+    # Sem `ports`: só a Evolution fala com o banco.
+
   evolution:
     image: evoapicloud/evolution-api:latest
     restart: unless-stopped
+    depends_on:
+      - evolution-postgres
     environment:
       - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:?defina EVOLUTION_API_KEY no .env.prod}
+      - SERVER_URL=http://evolution:8080
+      - DATABASE_ENABLED=true
+      - DATABASE_PROVIDER=postgresql
+      - DATABASE_CONNECTION_URI=postgresql://${EVOLUTION_POSTGRES_USER:-evolution}:${EVOLUTION_POSTGRES_PASSWORD}@evolution-postgres:5432/${EVOLUTION_POSTGRES_DB:-evolution}?schema=public
+      - CACHE_REDIS_ENABLED=false
+      - CACHE_LOCAL_ENABLED=true
       # Versão do WhatsApp Web usada pelo Baileys — desatualizada = QR não gera.
       # Atualize se o QR voltar a falhar (veja https://wppconnect.io/whatsapp-versions/).
       - CONFIG_SESSION_PHONE_VERSION=${CONFIG_SESSION_PHONE_VERSION:-2.3000.1023204200}
@@ -92,5 +114,6 @@ networks:
 
 volumes:
   evolution_instances:
+  evolution_postgres:
   caddy_data:
   caddy_config:

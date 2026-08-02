@@ -26,11 +26,16 @@ Preencha tudo (tokens com `openssl rand -hex 32`) e, **na VPS**, ajuste:
 ```dotenv
 EVOLUTION_URL=http://evolution:8080
 DATABASE_PATH=/app/data/agent.sqlite
+EVOLUTION_POSTGRES_PASSWORD=$(openssl rand -hex 24)
 ```
 
 > Se `EVOLUTION_URL` ficar como `http://localhost:8080` dentro do container
 > do agente, o QR code **nunca** aparece — o agente não alcança a Evolution.
 > Use sempre o hostname do serviço (`evolution`) na rede do compose.
+>
+> A Evolution API v2 exige Postgres (serviço `evolution-postgres` no compose).
+> Sem `EVOLUTION_POSTGRES_PASSWORD` o container reinicia com
+> `Database provider invalid`.
 
 ## 4. Subir agente + Evolution
 

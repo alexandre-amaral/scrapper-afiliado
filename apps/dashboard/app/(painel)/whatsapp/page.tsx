@@ -30,15 +30,24 @@ export default async function WhatsAppPage() {
     status === "qr" || status === "disconnected" || status === "connecting";
 
   let qr: string | null = null;
+  let qrError: string | null = null;
   if (needsQr) {
     const qrResult = await tryAgent<QrResponse>("/whatsapp/qr");
-    qr = qrResult.ok ? qrResult.data.qr : null;
+    if (qrResult.ok) {
+      qr = qrResult.data.qr;
+      qrError = qrResult.data.error ?? null;
+    } else {
+      qrError = qrResult.error;
+    }
   }
 
+  // Só aceita data-URL ou base64 de imagem — nunca o payload cru "2@..." do WA.
   const qrSrc = qr
     ? qr.startsWith("data:")
       ? qr
-      : `data:image/png;base64,${qr}`
+      : /^[A-Za-z0-9+/=]+$/.test(qr) && !qr.startsWith("2@")
+        ? `data:image/png;base64,${qr}`
+        : null
     : null;
 
   return (
@@ -123,9 +132,11 @@ export default async function WhatsAppPage() {
           ) : (
             <div className="flex flex-col items-start gap-3">
               <p className="text-sm text-neutral-400">
-                QR code ainda não disponível. O agente pode estar iniciando a
-                sessão — aguarde alguns segundos e atualize.
+                {qrError ??
+                  "QR code ainda não disponível. O agente pode estar iniciando a sessão — aguarde alguns segundos e atualize."}
               </p>
+              {/* Enquanto não há QR, atualiza sozinho — a Evolution demora a gerar. */}
+              <AutoRefresh seconds={8} />
               <RefreshButton label="Buscar QR code" />
             </div>
           )}

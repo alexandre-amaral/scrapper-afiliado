@@ -4,11 +4,16 @@
  * esta classe mantendo a interface (ver ARQUITETURA.md, seção 2).
  */
 
+import qrcode from "qrcode";
 import type { AgentEnv } from "@ml-agent/core";
 import type { Group, WhatsAppSender, WhatsAppStatus } from "@ml-agent/core";
 
 /** Valor padrão de mensagens/dia para grupos recém-descobertos. */
 const DEFAULT_MAX_PER_DAY = 5;
+
+/** Tentativas de ler o QR — a Evolution gera a imagem de forma assíncrona. */
+const QR_FETCH_ATTEMPTS = 4;
+const QR_FETCH_DELAY_MS = 1200;
 
 /** Erro HTTP com corpo da resposta para facilitar diagnóstico. */
 class EvolutionApiError extends Error {
@@ -26,17 +31,19 @@ export class EvolutionSender implements WhatsAppSender {
   private readonly baseUrl: string;
   private readonly apiKey: string;
   private readonly instance: string;
+  private readonly webhookUrl: string | null;
 
   constructor(env: AgentEnv) {
     // Remove barra final para montar URLs de forma previsível.
     this.baseUrl = env.EVOLUTION_URL.replace(/\/+$/, "");
     this.apiKey = env.EVOLUTION_API_KEY;
     this.instance = env.EVOLUTION_INSTANCE;
+    this.webhookUrl = resolveWebhookUrl(env);
   }
 
   /** Requisição base — sempre JSON com header de apikey. */
   private async request(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "DELETE",
     path: string,
     body?: unknown,
   ): Promise<{ status: number; data: unknown }> {
@@ -70,6 +77,7 @@ export class EvolutionSender implements WhatsAppSender {
   /**
    * Garante que a instância exista na Evolution.
    * Tolera erros de "já existe" (403/409 ou mensagem correspondente).
+   * Quando cria do zero, já registra o webhook de desconexão (se houver URL).
    */
   async ensureInstance(): Promise<void> {
     try {
@@ -77,6 +85,17 @@ export class EvolutionSender implements WhatsAppSender {
         instanceName: this.instance,
         integration: "WHATSAPP-BAILEYS",
         qrcode: true,
+        ...(this.webhookUrl
+          ? {
+              webhook: {
+                enabled: true,
+                url: this.webhookUrl,
+                byEvents: false,
+                base64: true,
+                events: ["CONNECTION_UPDATE", "QRCODE_UPDATED", "LOGOUT_INSTANCE"],
+              },
+            }
+          : {}),
       });
     } catch (err) {
       if (err instanceof EvolutionApiError) {
@@ -84,10 +103,28 @@ export class EvolutionSender implements WhatsAppSender {
           err.status === 403 ||
           err.status === 409 ||
           /already (in use|exists)|j[áa] existe/i.test(err.body);
-        if (alreadyExists) return;
+        if (alreadyExists) {
+          // Instância antiga: tenta só atualizar o webhook (best-effort).
+          await this.ensureWebhook().catch(() => undefined);
+          return;
+        }
       }
       throw err;
     }
+  }
+
+  /** Configura o webhook de desconexão numa instância já existente. */
+  async ensureWebhook(): Promise<void> {
+    if (!this.webhookUrl) return;
+    await this.request("POST", `/webhook/set/${encodeURIComponent(this.instance)}`, {
+      webhook: {
+        enabled: true,
+        url: this.webhookUrl,
+        byEvents: false,
+        base64: true,
+        events: ["CONNECTION_UPDATE", "QRCODE_UPDATED", "LOGOUT_INSTANCE"],
+      },
+    });
   }
 
   /** Envia texto para um grupo (JID, ex.: 1203630XXXX@g.us). */
@@ -107,7 +144,7 @@ export class EvolutionSender implements WhatsAppSender {
   /**
    * Estado da conexão da instância.
    * Nunca lança: erro de rede vira "disconnected"; instância inexistente
-   * (404) dispara ensureInstance e retorna "qr".
+   * dispara ensureInstance e retorna "qr".
    */
   async getStatus(): Promise<WhatsAppStatus> {
     try {
@@ -117,7 +154,7 @@ export class EvolutionSender implements WhatsAppSender {
       );
       return mapConnectionState(extractState(data));
     } catch (err) {
-      if (err instanceof EvolutionApiError && err.status === 404) {
+      if (err instanceof EvolutionApiError && looksLikeMissingInstance(err)) {
         try {
           await this.ensureInstance();
           return "qr";
@@ -129,23 +166,76 @@ export class EvolutionSender implements WhatsAppSender {
     }
   }
 
-  /** QR code em base64 para parear a instância, ou null se indisponível. */
+  /**
+   * QR code em data-URL (PNG base64) para parear a instância, ou null.
+   *
+   * A Evolution gera o QR de forma assíncrona (evento Baileys → toDataURL).
+   * GET /instance/connect pode devolver:
+   *   - { base64, code, pairingCode, count }  (estado connecting/close)
+   *   - { qrcode: { base64, code, ... } }     (outros formatos / create)
+   *   - só { code } sem imagem ainda
+   *
+   * Por isso: ensureInstance → várias tentativas → extrai base64 → se só
+   * houver o payload cru do WhatsApp (`code`), gera o PNG localmente.
+   */
   async getQrCode(): Promise<string | null> {
     try {
-      const { data } = await this.request(
-        "GET",
-        `/instance/connect/${encodeURIComponent(this.instance)}`,
-      );
-      if (!isRecord(data)) return null;
-      // Evolution v2 retorna { base64, code, pairingCode, ... }.
-      const base64 = data["base64"];
-      if (typeof base64 === "string" && base64.length > 0) return base64;
-      const code = data["code"];
-      if (typeof code === "string" && code.length > 0) return code;
-      return null;
+      await this.ensureInstance();
     } catch {
-      return null;
+      // Sem instância e sem conseguir criar — as tentativas abaixo falham
+      // com mensagem clara via null; o endpoint /whatsapp/qr loga o erro.
     }
+
+    let lastError: unknown;
+    let gotResponse = false;
+    for (let attempt = 0; attempt < QR_FETCH_ATTEMPTS; attempt++) {
+      try {
+        const { data } = await this.request(
+          "GET",
+          `/instance/connect/${encodeURIComponent(this.instance)}`,
+        );
+
+        // Algumas versões devolvem 200 com { error: true, message } em vez de HTTP 4xx.
+        if (isRecord(data) && data["error"] === true) {
+          const msg = data["message"];
+          throw new EvolutionApiError(
+            400,
+            typeof msg === "string" ? msg : JSON.stringify(data),
+            typeof msg === "string" ? msg : "Evolution retornou erro ao conectar a instância",
+          );
+        }
+        gotResponse = true;
+
+        // Já conectado: connect devolve connectionState, sem QR.
+        if (extractState(data) === "open") return null;
+
+        const image = await resolveQrImage(data);
+        if (image) return image;
+      } catch (err) {
+        lastError = err;
+        if (err instanceof EvolutionApiError && looksLikeMissingInstance(err)) {
+          try {
+            await this.ensureInstance();
+          } catch (createErr) {
+            lastError = createErr;
+          }
+        }
+      }
+      if (attempt < QR_FETCH_ATTEMPTS - 1) {
+        await sleep(QR_FETCH_DELAY_MS);
+      }
+    }
+
+    // Só propaga erro de rede/API se nenhuma resposta útil chegou —
+    // QR vazio após respostas 200 é "ainda gerando", não falha dura.
+    if (!gotResponse && lastError) {
+      const wrapped = new Error(
+        lastError instanceof Error ? lastError.message : String(lastError),
+      );
+      (wrapped as Error & { cause?: unknown }).cause = lastError;
+      throw wrapped;
+    }
+    return null;
   }
 
   /** Lista os grupos da instância mapeados para o contrato Group. */
@@ -172,11 +262,161 @@ export class EvolutionSender implements WhatsAppSender {
     }
     return groups;
   }
+
+  /**
+   * Checa se a Evolution responde (para /diagnostics).
+   * Não lança — devolve ok/mensagem amigável.
+   */
+  async ping(): Promise<{ ok: boolean; detail: string }> {
+    try {
+      // fetchInstances é leve e autentica com a mesma apikey.
+      await this.request("GET", "/instance/fetchInstances");
+      return { ok: true, detail: `Evolution alcançável em ${this.baseUrl}.` };
+    } catch (err) {
+      if (err instanceof EvolutionApiError) {
+        if (err.status === 401 || err.status === 403) {
+          return {
+            ok: false,
+            detail:
+              "Evolution respondeu, mas a chave (EVOLUTION_API_KEY) está errada.",
+          };
+        }
+        return {
+          ok: false,
+          detail: `Evolution respondeu ${err.status} — confira EVOLUTION_URL e a API key.`,
+        };
+      }
+      return {
+        ok: false,
+        detail: `Não foi possível alcançar a Evolution em ${this.baseUrl}. Na VPS use http://evolution:8080.`,
+      };
+    }
+  }
+}
+
+/** Monta a URL do webhook que a Evolution chama ao desconectar. */
+function resolveWebhookUrl(env: AgentEnv): string | null {
+  const override = process.env["EVOLUTION_WEBHOOK_URL"]?.trim();
+  if (override) return override.replace(/\/+$/, "");
+
+  try {
+    const host = new URL(env.EVOLUTION_URL).hostname;
+    // Compose interno: agent e evolution na mesma rede — webhook sem TLS público.
+    if (host === "evolution") {
+      return `http://agent:${env.AGENT_PORT}/webhook/evolution`;
+    }
+  } catch {
+    // URL inválida — cai nos fallbacks abaixo.
+  }
+
+  const pub = env.PUBLIC_URL?.trim();
+  if (pub) return `${pub.replace(/\/+$/, "")}/webhook/evolution`;
+
+  // Dev local (agent + evolution no host): webhook loopback.
+  if (/localhost|127\.0\.0\.1/i.test(env.EVOLUTION_URL)) {
+    return `http://127.0.0.1:${env.AGENT_PORT}/webhook/evolution`;
+  }
+
+  return null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Type guard simples para objetos planos. */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+/** Instância ausente na Evolution (404 clássico ou 400 "does not exist"). */
+function looksLikeMissingInstance(err: EvolutionApiError): boolean {
+  if (err.status === 404) return true;
+  return (
+    (err.status === 400 || err.status === 404) &&
+    /does not exist|not found|n[aã]o encontrad/i.test(err.body)
+  );
+}
+
+/**
+ * Extrai uma imagem de QR (data-URL ou base64 puro) do payload da Evolution.
+ * Nunca devolve o campo `code` cru — isso é o payload do WhatsApp, não PNG.
+ */
+function extractQrBase64(data: unknown): string | null {
+  if (!isRecord(data)) return null;
+
+  const direct = asImageBase64(data["base64"]);
+  if (direct) return direct;
+
+  const nested = data["qrcode"];
+  if (isRecord(nested)) {
+    const fromNested = asImageBase64(nested["base64"]);
+    if (fromNested) return fromNested;
+  }
+  // Algumas forks devolvem a data-URL direto em "qrcode".
+  if (typeof nested === "string") {
+    const fromString = asImageBase64(nested);
+    if (fromString) return fromString;
+  }
+
+  return null;
+}
+
+/** Extrai o payload cru do QR (`2@...`) para gerar a imagem localmente. */
+function extractQrPayload(data: unknown): string | null {
+  if (!isRecord(data)) return null;
+  const top = data["code"];
+  if (typeof top === "string" && looksLikeWhatsAppQrPayload(top)) return top;
+  const nested = data["qrcode"];
+  if (isRecord(nested)) {
+    const code = nested["code"];
+    if (typeof code === "string" && looksLikeWhatsAppQrPayload(code)) return code;
+  }
+  return null;
+}
+
+/** Aceita data-URL ou base64 de PNG/JPEG; rejeita o payload `2@...` do WA. */
+function asImageBase64(value: unknown): string | null {
+  if (typeof value !== "string" || value.length < 32) return null;
+  if (value.startsWith("data:image/")) return value;
+  // Payload do WhatsApp (não é imagem).
+  if (looksLikeWhatsAppQrPayload(value)) return null;
+  // PNG em base64 começa com iVBOR; JPEG com /9j/.
+  if (/^(iVBOR|\/9j\/)/.test(value)) return value;
+  // Outros base64 longos sem prefixo — a UI prefixa data:image/png.
+  if (/^[A-Za-z0-9+/=\s]+$/.test(value) && value.replace(/\s/g, "").length > 200) {
+    return value.replace(/\s/g, "");
+  }
+  return null;
+}
+
+function looksLikeWhatsAppQrPayload(value: string): boolean {
+  // Payload do QR do WhatsApp Web (Baileys): começa com "2@" e é longo.
+  // Não confundir com pairingCode curto (ex.: WZYEH1YY) nem com base64 de PNG.
+  return value.startsWith("2@") && value.length > 40;
+}
+
+/**
+ * Resolve a imagem do QR: prefere base64 da Evolution; se só houver o
+ * payload cru, gera o PNG com a lib `qrcode`.
+ */
+async function resolveQrImage(data: unknown): Promise<string | null> {
+  const fromApi = extractQrBase64(data);
+  if (fromApi) return fromApi;
+
+  const payload = extractQrPayload(data);
+  if (!payload) return null;
+
+  try {
+    return await qrcode.toDataURL(payload, {
+      errorCorrectionLevel: "M",
+      margin: 2,
+      width: 512,
+      type: "image/png",
+    });
+  } catch {
+    return null;
+  }
 }
 
 /** Extrai o id da mensagem do payload de envio (formatos variam). */
@@ -197,6 +437,10 @@ function extractState(data: unknown): string {
     return instance["state"];
   }
   if (typeof data["state"] === "string") return data["state"];
+  // connectToWhatsapp às vezes devolve { instance: { status } }
+  if (isRecord(instance) && typeof instance["status"] === "string") {
+    return instance["status"];
+  }
   return "";
 }
 

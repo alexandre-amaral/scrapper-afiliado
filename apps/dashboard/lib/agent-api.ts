@@ -98,6 +98,8 @@ export interface AgentSettings {
 
 export interface QrResponse {
   qr: string | null;
+  /** Mensagem amigável quando o QR não pôde ser gerado. */
+  error?: string | null;
 }
 
 // ----- Diagnóstico -----

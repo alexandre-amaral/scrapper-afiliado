@@ -59,6 +59,9 @@ services:
     restart: unless-stopped
     environment:
       - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:?defina EVOLUTION_API_KEY no .env.prod}
+      # Versão do WhatsApp Web usada pelo Baileys — desatualizada = QR não gera.
+      # Atualize se o QR voltar a falhar (veja https://wppconnect.io/whatsapp-versions/).
+      - CONFIG_SESSION_PHONE_VERSION=${CONFIG_SESSION_PHONE_VERSION:-2.3000.1023204200}
     volumes:
       - evolution_instances:/evolution/instances
     networks:

@@ -37,6 +37,8 @@ services:
     restart: unless-stopped
     environment:
       - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY}
+      # Versão do WhatsApp Web usada pelo Baileys — desatualizada = QR não gera.
+      - CONFIG_SESSION_PHONE_VERSION=${CONFIG_SESSION_PHONE_VERSION:-2.3000.1023204200}
     volumes:
       - evolution_instances:/evolution/instances
     # SEM `ports`: a Evolution nunca é exposta publicamente.

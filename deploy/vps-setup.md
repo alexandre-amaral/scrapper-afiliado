@@ -28,6 +28,10 @@ EVOLUTION_URL=http://evolution:8080
 DATABASE_PATH=/app/data/agent.sqlite
 ```
 
+> Se `EVOLUTION_URL` ficar como `http://localhost:8080` dentro do container
+> do agente, o QR code **nunca** aparece — o agente não alcança a Evolution.
+> Use sempre o hostname do serviço (`evolution`) na rede do compose.
+
 ## 4. Subir agente + Evolution
 
 ```bash

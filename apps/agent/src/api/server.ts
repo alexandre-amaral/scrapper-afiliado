@@ -67,9 +67,9 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
 
   // Sender único compartilhado por todas as rotas.
   const sender = new EvolutionSender(env);
-  // Garante a instância na Evolution API — best-effort, não bloqueia o boot.
+  // Garante a instância + webhook na Evolution API — best-effort, não bloqueia o boot.
   try {
-    await (sender as unknown as { ensureInstance?: () => Promise<unknown> }).ensureInstance?.();
+    await sender.ensureInstance();
   } catch (err) {
     app.log.warn({ err }, "ensureInstance falhou no boot — seguirá tentando via status/QR");
   }
@@ -118,16 +118,28 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
   // texto do que fazer, para o operador resolver sem precisar de suporte.
   app.get("/diagnostics", async () => {
     const resolved = await resolveEnv(db, env);
-    const [waStatus, affiliate, credentials, enabledGroups, settings] = await Promise.all([
-      sender.getStatus().catch(() => "disconnected" as const),
-      getSessionStatus(resolved).catch(() => "unknown" as const),
-      getCredentialsStatus(db, env),
-      db.select().from(groups).where(eq(groups.enabled, true)),
-      getSettings(db),
-    ]);
+    const [waStatus, affiliate, credentials, enabledGroups, settings, evolution] =
+      await Promise.all([
+        sender.getStatus().catch(() => "disconnected" as const),
+        getSessionStatus(resolved).catch(() => "unknown" as const),
+        getCredentialsStatus(db, env),
+        db.select().from(groups).where(eq(groups.enabled, true)),
+        getSettings(db),
+        sender.ping(),
+      ]);
 
     // ok: pronto | warn: funciona, mas atenção | error: bloqueia a operação
     const checks = [
+      {
+        id: "evolution",
+        label: "Evolution API",
+        status: evolution.ok ? "ok" : "error",
+        detail: evolution.detail,
+        action: evolution.ok
+          ? null
+          : "Na VPS, defina EVOLUTION_URL=http://evolution:8080 e a mesma EVOLUTION_API_KEY do container.",
+        href: "/whatsapp",
+      },
       {
         id: "whatsapp",
         label: "WhatsApp conectado",
@@ -464,7 +476,28 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
   });
 
   // --- WhatsApp: QR code para parear ---
-  app.get("/whatsapp/qr", async () => ({ qr: await sender.getQrCode() }));
+  app.get("/whatsapp/qr", async () => {
+    try {
+      const qr = await sender.getQrCode();
+      if (!qr) {
+        return {
+          qr: null,
+          error:
+            "A Evolution ainda não gerou o QR. Aguarde alguns segundos e clique em Buscar QR code. Se persistir, confira EVOLUTION_URL (na VPS: http://evolution:8080) e a API key.",
+        };
+      }
+      return { qr, error: null };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      app.log.error({ err }, "falha ao obter QR code da Evolution");
+      return {
+        qr: null,
+        error: message.includes("fetch") || /ECONNREFUSED|ENOTFOUND|unreachable/i.test(message)
+          ? `Não foi possível falar com a Evolution. Na VPS use EVOLUTION_URL=http://evolution:8080. Detalhe: ${message}`
+          : `Falha ao gerar o QR: ${message}`,
+      };
+    }
+  });
 
   // --- Coleta manual (fire-and-forget) ---
   app.post("/collect", async () => {

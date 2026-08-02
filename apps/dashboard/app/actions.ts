@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { actionErr, actionOk, type ActionResult } from "@/lib/action-result";
-import { agentFetch, type AgentSettings } from "@/lib/agent-api";
+import { agentFetch, type AgentSettings, type DispatchResult } from "@/lib/agent-api";
 
 function requireId(formData: FormData): string {
   const id = formData.get("id");
@@ -17,6 +17,22 @@ function optionalNumber(formData: FormData, name: string): number | undefined {
   if (typeof raw !== "string" || raw.trim() === "") return undefined;
   const value = Number(raw);
   return Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * Lê um par valor + unidade (segundos/minutos) do formulário e devolve
+ * segundos. O agente prende no intervalo válido — aqui não rejeitamos nada.
+ */
+function durationSeconds(
+  formData: FormData,
+  valueName: string,
+  unitName: string,
+  fallback: number,
+): number {
+  const value = optionalNumber(formData, valueName);
+  if (value === undefined) return fallback;
+  const unit = String(formData.get(unitName) ?? "s");
+  return Math.round(unit === "min" ? value * 60 : value);
 }
 
 function commaList(formData: FormData, name: string): string[] {
@@ -92,8 +108,13 @@ export async function patchSettings(formData: FormData): Promise<void> {
     autoApprove: formData.get("autoApprove") === "on",
     sendWindowStart: String(formData.get("sendWindowStart") ?? ""),
     sendWindowEnd: String(formData.get("sendWindowEnd") ?? ""),
-    sendIntervalMinutes: optionalNumber(formData, "sendIntervalMinutes") ?? 0,
-    sendJitterMinutes: optionalNumber(formData, "sendJitterMinutes") ?? 0,
+    sendIntervalSeconds: durationSeconds(
+      formData,
+      "sendInterval",
+      "sendIntervalUnit",
+      2_700,
+    ),
+    sendJitterSeconds: durationSeconds(formData, "sendJitter", "sendJitterUnit", 0),
     composerPrompt: String(formData.get("composerPrompt") ?? ""),
     keywords: commaList(formData, "keywords"),
     rankTopN: optionalNumber(formData, "rankTopN") ?? 0,
@@ -136,6 +157,28 @@ export async function triggerCollect(): Promise<ActionResult> {
     revalidatePath("/");
     revalidatePath("/fontes");
     return actionOk("Coleta iniciada.");
+  } catch (err) {
+    return actionErr(err);
+  }
+}
+
+/**
+ * Envia UMA mensagem da fila agora, sem esperar o próximo tick.
+ * Quando nada sai, o agente devolve o motivo em português — mostrar isso é o
+ * ponto do botão: "não enviou" vira "não enviou porque X".
+ */
+export async function dispatchNow(): Promise<ActionResult> {
+  try {
+    const result = await agentFetch<DispatchResult>("/dispatch", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    revalidatePath("/");
+    revalidatePath("/aprovacao");
+    if (result.sent > 0) {
+      return actionOk("Mensagem enviada ao grupo.");
+    }
+    return actionErr(`Nada foi enviado — ${result.reason}`);
   } catch (err) {
     return actionErr(err);
   }

@@ -365,21 +365,51 @@ function looksLikeDisconnection(message: string): boolean {
 }
 
 /**
+ * Resultado de um tick de disparo. `reason` é texto para o operador — aparece
+ * no botão "Enviar agora" do painel e explica por que nada saiu.
+ */
+export interface DispatchResult {
+  sent: number;
+  reason: string;
+}
+
+/**
+ * Loop de disparo roda a cada poucos segundos: repetir o mesmo aviso a cada
+ * tick encheria o log. Só registra quando o motivo muda ou passou 5 minutos.
+ */
+const SKIP_LOG_INTERVAL_MS = 5 * 60_000;
+let lastSkipReason = "";
+let lastSkipLoggedAt = 0;
+
+function logSkipOnce(log: Log, reason: string, level: "info" | "warn" = "info"): void {
+  const now = Date.now();
+  if (reason === lastSkipReason && now - lastSkipLoggedAt < SKIP_LOG_INTERVAL_MS) return;
+  lastSkipReason = reason;
+  lastSkipLoggedAt = now;
+  log[level](`disparo pulado: ${reason}`);
+}
+
+/**
  * Envia NO MÁXIMO UMA mensagem por tick — a cadência humana é controlada
  * pelo intervalo + jitter do scheduler, não por lotes.
  */
 export async function dispatchDueMessages(
   ctx: PipelineCtx & { sender: WhatsAppSender },
-): Promise<number> {
+): Promise<DispatchResult> {
   const { db, log, sender } = ctx;
   const settings = await getSettings(db);
   if (settings.paused) {
-    log.info("disparo pulado: agente pausado");
-    return 0;
+    const reason = "o agente está pausado. Clique em Retomar na faixa de status.";
+    logSkipOnce(log, reason);
+    return { sent: 0, reason };
   }
 
   const now = new Date();
-  if (!withinSendWindow(settings, now)) return 0;
+  if (!withinSendWindow(settings, now)) {
+    const reason = `fora da janela de envio (${settings.sendWindowStart}–${settings.sendWindowEnd}).`;
+    logSkipOnce(log, reason);
+    return { sent: 0, reason };
+  }
 
   const nowIso = now.toISOString();
   const [due] = await db
@@ -393,12 +423,17 @@ export async function dispatchDueMessages(
     )
     .orderBy(asc(messages.createdAt), asc(messages.id))
     .limit(1);
-  if (!due) return 0;
+  if (!due) {
+    const reason = "nenhuma mensagem aprovada na fila.";
+    logSkipOnce(log, reason);
+    return { sent: 0, reason };
+  }
 
   const waStatus = await sender.getStatus().catch(() => "disconnected" as const);
   if (waStatus !== "connected") {
-    log.warn({ waStatus }, "disparo pulado: WhatsApp não conectado");
-    return 0;
+    const reason = "o WhatsApp não está conectado. Vá em WhatsApp e leia o QR Code.";
+    logSkipOnce(log, reason, "warn");
+    return { sent: 0, reason };
   }
 
   try {
@@ -408,7 +443,8 @@ export async function dispatchDueMessages(
       .set({ status: "sent", sentAt: new Date().toISOString(), error: null })
       .where(eq(messages.id, due.id));
     await logRun(db, "dispatch", true, `mensagem ${due.id} enviada para ${due.groupId}`);
-    return 1;
+    lastSkipReason = "";
+    return { sent: 1, reason: `mensagem ${due.id} enviada para ${due.groupId}.` };
   } catch (err) {
     const message = errMsg(err);
     await db
@@ -423,6 +459,20 @@ export async function dispatchDueMessages(
       log.error({ err }, "envio falhou");
     }
     await logRun(db, "dispatch", false, `mensagem ${due.id}: ${message}`);
-    return 0;
+    return { sent: 0, reason: `o envio falhou: ${message}` };
   }
+}
+
+/**
+ * Aprova em lote os rascunhos que já estão na fila.
+ * A aprovação automática só valia na criação da mensagem: ligar a chave
+ * deixava os rascunhos antigos presos para sempre na tela de aprovação.
+ */
+export async function approveDraftMessages(db: Db): Promise<number> {
+  const updated = await db
+    .update(messages)
+    .set({ status: "approved" })
+    .where(eq(messages.status, "draft"))
+    .returning({ id: messages.id });
+  return updated.length;
 }

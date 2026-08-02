@@ -81,6 +81,16 @@ function clampedInt(min: number, max: number, def: number) {
     });
 }
 
+/**
+ * Piso do intervalo entre envios. 5 segundos existe para permitir teste real
+ * no painel; a cadência de produção continua sendo minutos (ver aviso na UI).
+ */
+export const MIN_SEND_INTERVAL_SECONDS = 5;
+/** Teto: 24 horas entre envios. */
+export const MAX_SEND_INTERVAL_SECONDS = 86_400;
+/** Teto do jitter: 2 horas para cada lado. */
+export const MAX_SEND_JITTER_SECONDS = 7_200;
+
 export const agentSettingsSchema = z.object({
   filters: offerFiltersSchema,
   autoApprove: z.boolean().default(false),
@@ -94,8 +104,15 @@ export const agentSettingsSchema = z.object({
     .regex(/^\d{2}:\d{2}$/)
     .catch("21:00")
     .default("21:00"),
-  sendIntervalMinutes: clampedInt(5, 1440, 45).default(45),
-  sendJitterMinutes: clampedInt(0, 120, 15).default(15),
+  // Cadência em SEGUNDOS. Settings antigas guardavam minutos
+  // (sendIntervalMinutes/sendJitterMinutes) e são convertidas na leitura —
+  // ver migrateCadence em apps/agent/src/settings.ts.
+  sendIntervalSeconds: clampedInt(
+    MIN_SEND_INTERVAL_SECONDS,
+    MAX_SEND_INTERVAL_SECONDS,
+    2_700,
+  ).default(2_700),
+  sendJitterSeconds: clampedInt(0, MAX_SEND_JITTER_SECONDS, 900).default(900),
   composerPrompt: z.string().default(""),
   keywords: z.array(z.string()).default([]),
   rankTopN: clampedInt(1, 20, 8).default(8),

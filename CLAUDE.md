@@ -65,6 +65,16 @@ uma mensagem por tick** — a cadência humana vem do intervalo + jitter do
 scheduler, nunca de lotes. Não mude isso para envio em lote: é a mitigação
 central anti-ban.
 
+O intervalo (`sendIntervalSeconds` ± `sendJitterSeconds`, em **segundos**) só é
+aplicado **depois de um envio de verdade**. Tick que não enviou nada (pausado,
+fila vazia, fora da janela, WhatsApp caído) volta em 10 s, para que mudança de
+configuração no painel valha quase na hora. Dormir o intervalo inteiro num tick
+ocioso já causou "o agente não envia nada" por até uma hora.
+
+A janela de envio usa o **relógio local do processo** (`getHours()`): o
+container precisa de `TZ` (ver docker-compose), senão roda em UTC e a janela
+sai adiantada em relação ao operador.
+
 `processManualUrls()` usa o mesmo funil, mas pula dedup e filtros — colar a URL
 no dashboard já é curadoria humana.
 
@@ -118,6 +128,16 @@ Ambos vivem na mesma tabela k/v `settings`, em chaves diferentes:
 `getSettings()` sempre devolve defaults válidos mesmo com a linha ausente ou
 corrompida. Os campos sensíveis nunca voltam em claro ao dashboard:
 `getCredentialsStatus()` os transforma em booleano "configurado?".
+
+`migrateCadence()` em `settings.ts` converte a cadência antiga em minutos
+(`sendIntervalMinutes`/`sendJitterMinutes`) para os campos em segundos na
+leitura e no patch. Ao renomear campo de settings, migre ali — o schema Zod
+descarta chave desconhecida em silêncio e o operador perde a configuração.
+
+`autoApprove` decide o status na criação da mensagem (`approved` vs `draft`).
+Ligar a chave também aprova os rascunhos que já estão na fila
+(`approveDraftMessages`, chamado no `PATCH /settings`); sem isso eles ficariam
+presos para sempre, já que a tela de aprovação some da rotina do operador.
 
 ### Pausa automática anti-ban
 

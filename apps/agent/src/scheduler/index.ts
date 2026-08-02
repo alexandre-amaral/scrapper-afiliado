@@ -5,6 +5,7 @@ import { getSessionStatus } from "../affiliate/index.js";
 import { EvolutionSender } from "../whatsapp/index.js";
 import { dispatchDueMessages, runCollection, type Log } from "../pipeline.js";
 import { getSettings } from "../settings.js";
+import { setDispatchState } from "./state.js";
 
 export interface SchedulerCtx {
   env: AgentEnv;
@@ -35,29 +36,59 @@ export function startScheduler(ctx: SchedulerCtx): void {
   });
 
   // --- Disparo: loop auto-agendado (intervalo ± jitter, relido a cada ciclo) ---
+  //
+  // O intervalo só é respeitado DEPOIS de um envio de verdade — é ele que
+  // espaça as mensagens no grupo (mitigação anti-ban). Quando o tick não
+  // envia nada (pausado, fila vazia, fora da janela, WhatsApp caído) o loop
+  // volta em IDLE_RETRY_MS. Antes o tick ocioso também dormia o intervalo
+  // inteiro, então mudar a cadência no painel só valia até uma hora depois —
+  // e o operador via o agente "parado" sem explicação.
+  const IDLE_RETRY_MS = 10_000;
+  const BOOT_DELAY_MS = 10_000;
+
+  const scheduleNext = (delayMs: number): void => {
+    setDispatchState({ nextAttemptAt: new Date(Date.now() + delayMs).toISOString() });
+    const timer = setTimeout(() => void dispatchTick(), delayMs);
+    timer.unref?.();
+  };
+
   const dispatchTick = async (): Promise<void> => {
+    let sent = 0;
     try {
-      const sent = await dispatchDueMessages({ env, db, log, sender });
+      const result = await dispatchDueMessages({ env, db, log, sender });
+      sent = result.sent;
+      setDispatchState({
+        lastAttemptAt: new Date().toISOString(),
+        lastReason: result.reason,
+      });
       if (sent > 0) log.info({ sent }, "tick de disparo concluído");
     } catch (err) {
       log.error({ err }, "tick de disparo falhou");
+      setDispatchState({
+        lastAttemptAt: new Date().toISOString(),
+        lastReason: err instanceof Error ? err.message : String(err),
+      });
     }
 
-    // Relê as settings a cada ciclo — mudanças no dashboard valem já no próximo tick.
-    let delayMinutes = 45;
+    if (sent === 0) {
+      scheduleNext(IDLE_RETRY_MS);
+      return;
+    }
+
+    // Relê as settings a cada ciclo — mudanças no painel valem no próximo envio.
+    let delayMs = 45 * 60_000;
     try {
       const settings = await getSettings(db);
-      const jitter = (Math.random() * 2 - 1) * settings.sendJitterMinutes;
-      delayMinutes = Math.max(1, settings.sendIntervalMinutes + jitter);
+      const jitter = (Math.random() * 2 - 1) * settings.sendJitterSeconds;
+      delayMs = Math.max(1, settings.sendIntervalSeconds + jitter) * 1_000;
     } catch (err) {
       log.error({ err }, "falha ao ler settings para agendar próximo disparo — usando fallback");
     }
-    const timer = setTimeout(() => void dispatchTick(), delayMinutes * 60_000);
-    timer.unref?.();
+    scheduleNext(delayMs);
   };
-  // Primeiro tick após 1 minuto para dar tempo ao boot completo.
-  const firstTimer = setTimeout(() => void dispatchTick(), 60_000);
-  firstTimer.unref?.();
+
+  // Primeiro tick logo após o boot — o loop ocioso é barato.
+  scheduleNext(BOOT_DELAY_MS);
 
   // --- Sessão de afiliado: verificação a cada 6 horas ---
   cron.schedule("0 */6 * * *", async () => {

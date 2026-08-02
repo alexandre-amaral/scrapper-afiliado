@@ -104,10 +104,10 @@ export interface AgentSettings {
   /** Janela de envio, horário local. */
   sendWindowStart: string; // "09:00"
   sendWindowEnd: string; // "21:00"
-  /** Intervalo base entre envios (minutos) — jitter é aplicado por cima. */
-  sendIntervalMinutes: number;
-  /** Jitter máximo somado/subtraído do intervalo (minutos). */
-  sendJitterMinutes: number;
+  /** Intervalo base entre envios (segundos) — jitter é aplicado por cima. */
+  sendIntervalSeconds: number;
+  /** Jitter máximo somado/subtraído do intervalo (segundos). */
+  sendJitterSeconds: number;
   /** Prompt-base do compositor de mensagens (editável no dashboard). */
   composerPrompt: string;
   /** Palavras-chave monitoradas na API oficial do ML. */

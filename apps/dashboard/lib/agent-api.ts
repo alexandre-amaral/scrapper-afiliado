@@ -34,21 +34,45 @@ export interface Message {
 
 export interface Run {
   id: string;
-  kind?: string;
-  status?: string;
+  /** Nome do job: "collection", "dispatch", "manual", "auto-approve"… */
+  job?: string;
+  ok?: boolean | null;
   startedAt?: string;
   finishedAt?: string | null;
   detail?: string | null;
   [key: string]: unknown;
 }
 
+/** Estado em memória do loop de disparo do agente. */
+export interface DispatchState {
+  nextAttemptAt: string | null;
+  lastAttemptAt: string | null;
+  lastReason: string | null;
+}
+
 export interface Overview {
   whatsapp: WhatsAppStatus;
   affiliateSession: AffiliateSessionStatus;
   paused: boolean;
+  autoApprove: boolean;
+  sendIntervalSeconds: number;
+  sendJitterSeconds: number;
+  sendWindowStart: string;
+  sendWindowEnd: string;
+  /** Relógio do servidor do agente — é ele que decide a janela de envio. */
+  agentTime: string;
+  dispatch: DispatchState;
+  /** Quantas mensagens estão paradas esperando aprovação manual. */
+  pendingApproval: number;
   nextMessages: Message[];
   lastSent: Message[];
   lastRuns: Run[];
+}
+
+/** Resposta de POST /dispatch — envio manual de uma mensagem. */
+export interface DispatchResult {
+  sent: number;
+  reason: string;
 }
 
 export type OfferSource = string; // ex.: "ml-api" | "scraper" | "manual"
@@ -88,8 +112,10 @@ export interface AgentSettings {
   autoApprove: boolean;
   sendWindowStart: string;
   sendWindowEnd: string;
-  sendIntervalMinutes: number;
-  sendJitterMinutes: number;
+  /** Intervalo base entre envios, em segundos. */
+  sendIntervalSeconds: number;
+  /** Variação aleatória somada/subtraída do intervalo, em segundos. */
+  sendJitterSeconds: number;
   composerPrompt: string;
   keywords: string[];
   rankTopN: number;

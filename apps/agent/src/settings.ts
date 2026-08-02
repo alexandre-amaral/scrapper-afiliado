@@ -10,6 +10,29 @@ import { settings, type Db } from "@ml-agent/db";
 const SETTINGS_KEY = "agent";
 
 /**
+ * Converte a cadência antiga (sendIntervalMinutes/sendJitterMinutes) para os
+ * campos em segundos. Sem isso, um upgrade transformaria "45 minutos" no
+ * default de segundos e mudaria a cadência do operador pelas costas.
+ * Os campos em segundos, quando presentes, sempre vencem.
+ */
+function migrateCadence(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
+  const out = { ...(raw as Record<string, unknown>) };
+  const legacy: Array<[string, string]> = [
+    ["sendIntervalMinutes", "sendIntervalSeconds"],
+    ["sendJitterMinutes", "sendJitterSeconds"],
+  ];
+  for (const [oldKey, newKey] of legacy) {
+    const oldValue = out[oldKey];
+    if (out[newKey] === undefined && typeof oldValue === "number" && Number.isFinite(oldValue)) {
+      out[newKey] = Math.round(oldValue * 60);
+    }
+    delete out[oldKey];
+  }
+  return out;
+}
+
+/**
  * Lê as settings do agente da tabela k/v.
  * Se a linha não existir (primeiro boot) ou estiver corrompida,
  * retorna os defaults do schema — nunca lança para o chamador.
@@ -28,7 +51,7 @@ export async function getSettings(db: Db): Promise<AgentSettings> {
   try {
     const raw: unknown = JSON.parse(rows[0]!.value);
     // Valida e preenche defaults — tolera settings antigas com campos faltando.
-    return agentSettingsSchema.parse(raw);
+    return agentSettingsSchema.parse(migrateCadence(raw));
   } catch {
     return agentSettingsSchema.parse({ filters: {} });
   }
@@ -61,7 +84,8 @@ function deepMerge<T extends Record<string, unknown>>(base: T, patch: Record<str
  * atuais, persiste e retorna o resultado completo.
  */
 export async function patchSettings(db: Db, patch: unknown): Promise<AgentSettings> {
-  const parsedPatch = settingsPatchSchema.parse(patch);
+  // Aceita patch com a cadência antiga em minutos (painel desatualizado).
+  const parsedPatch = settingsPatchSchema.parse(migrateCadence(patch));
   const current = await getSettings(db);
 
   const merged = agentSettingsSchema.parse(

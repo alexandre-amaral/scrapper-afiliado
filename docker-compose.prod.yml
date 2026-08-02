@@ -30,6 +30,11 @@ services:
     restart: unless-stopped
     depends_on:
       - evolution
+    environment:
+      # A janela de envio (09:00–21:00) usa o relógio LOCAL do container.
+      # Sem isto ele roda em UTC e a janela sai 3 horas adiantada — o agente
+      # para de enviar às 18h do Brasil sem nenhum erro visível.
+      - TZ=${TZ:-America/Sao_Paulo}
     volumes:
       # SQLite + sessão criptografada do portal de afiliados
       - ./data:/app/data
@@ -45,6 +50,7 @@ services:
     depends_on:
       - agent
     environment:
+      - TZ=${TZ:-America/Sao_Paulo}
       # Alcança o agente pelo nome do serviço na rede interna do compose.
       - AGENT_URL=http://agent:3001
       - AGENT_TOKEN=${AGENT_TOKEN:?defina AGENT_TOKEN no .env.prod}

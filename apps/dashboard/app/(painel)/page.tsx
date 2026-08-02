@@ -1,8 +1,9 @@
 import { DiagnosticsPanel } from "@/components/diagnostics-panel";
+import { DispatchNowButton } from "@/components/dispatch-now-button";
 import { PageHeader } from "@/components/page-header";
 import { SetupHint } from "@/components/setup-hint";
 import { tryAgent, type Diagnostics, type Overview } from "@/lib/agent-api";
-import { formatDateTime, truncate } from "@/lib/format";
+import { formatDateTime, formatDuration, truncate } from "@/lib/format";
 import { ui } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +35,39 @@ export default async function OverviewPage() {
       {diagnostics.ok ? (
         <DiagnosticsPanel diagnostics={diagnostics.data} />
       ) : null}
+
+      <section className={ui.card}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-sm font-semibold text-ink">Envio</h2>
+            <p className="mt-1 text-sm text-mute">
+              {overview.paused
+                ? "Pausado — nada sai até você clicar em Retomar."
+                : `Uma mensagem a cada ${formatDuration(overview.sendIntervalSeconds)}` +
+                  (overview.sendJitterSeconds > 0
+                    ? `, variando até ${formatDuration(overview.sendJitterSeconds)}`
+                    : "") +
+                  `, entre ${overview.sendWindowStart} e ${overview.sendWindowEnd}.`}
+            </p>
+            <p className="mt-1 text-xs text-mute">
+              {overview.autoApprove
+                ? "Aprovação automática ligada: as mensagens vão para o grupo sem passar pela fila de aprovação."
+                : `Aprovação manual: ${overview.pendingApproval} mensagem(ns) esperando você aprovar.`}
+            </p>
+            <p className="mt-1 text-xs text-mute">
+              Relógio do servidor: {formatDateTime(overview.agentTime)} · Próxima
+              tentativa: {formatDateTime(overview.dispatch.nextAttemptAt)}
+            </p>
+            {overview.dispatch.lastReason ? (
+              <p className="mt-1 text-xs text-mute">
+                Última tentativa ({formatDateTime(overview.dispatch.lastAttemptAt)}):{" "}
+                {overview.dispatch.lastReason}
+              </p>
+            ) : null}
+          </div>
+          <DispatchNowButton />
+        </div>
+      </section>
 
       <section>
         <h2 className={ui.sectionTitle}>Próximos disparos</h2>
@@ -99,20 +133,12 @@ export default async function OverviewPage() {
                 <span className={ui.monoBadge}>
                   {formatDateTime(run.startedAt)}
                 </span>
-                {run.kind ? <span className="text-ink/90">{run.kind}</span> : null}
-                {run.status ? (
-                  <span
-                    className={
-                      run.status === "failed" || run.status === "error"
-                        ? "text-danger"
-                        : "text-mute"
-                    }
-                  >
-                    {run.status}
-                  </span>
-                ) : null}
+                {run.job ? <span className="text-ink/90">{run.job}</span> : null}
+                <span className={run.ok === false ? "text-danger" : "text-mute"}>
+                  {run.ok === false ? "falhou" : "ok"}
+                </span>
                 {run.detail ? (
-                  <span className="text-xs text-mute">{run.detail}</span>
+                  <span className="text-xs text-mute">{truncate(run.detail, 180)}</span>
                 ) : null}
               </li>
             ))}

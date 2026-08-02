@@ -3,6 +3,7 @@ import { patchSettings } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
 import { SetupHint } from "@/components/setup-hint";
 import { tryAgent, type AgentSettings } from "@/lib/agent-api";
+import { formatDuration, splitDuration } from "@/lib/format";
 import { ui } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +38,8 @@ export default async function SettingsPage() {
   }
 
   const settings = result.data;
+  const interval = splitDuration(settings.sendIntervalSeconds);
+  const jitter = splitDuration(settings.sendJitterSeconds);
 
   return (
     <div className="space-y-6">
@@ -140,10 +143,17 @@ export default async function SettingsPage() {
         </section>
 
         <section className={ui.card}>
-          <h2 className="mb-4 text-sm font-semibold text-ink">
+          <h2 className="mb-1 text-sm font-semibold text-ink">
             Cadência de envio
           </h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <p className="mb-4 text-xs text-mute">
+            O agente envia <strong>uma mensagem por vez</strong>. O intervalo é
+            o tempo de espera entre uma mensagem e a próxima; a variação
+            aleatória é somada ou subtraída desse tempo para o ritmo não ficar
+            robótico. A janela usa o relógio do servidor
+            {" — "}veja o horário atual dele na Visão geral.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Início da janela de envio">
               <input
                 type="text"
@@ -162,34 +172,89 @@ export default async function SettingsPage() {
                 className={ui.input}
               />
             </Field>
-            <Field label="Intervalo entre envios (min)">
-              <input
-                type="number"
-                name="sendIntervalMinutes"
-                min={0}
-                defaultValue={settings.sendIntervalMinutes}
-                className={ui.input}
-              />
+            <Field label="Intervalo entre envios">
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  name="sendInterval"
+                  min={1}
+                  defaultValue={interval.value}
+                  className={`${ui.input} flex-1`}
+                />
+                <select
+                  name="sendIntervalUnit"
+                  defaultValue={interval.unit}
+                  className={`${ui.input} w-32`}
+                >
+                  <option value="s">segundos</option>
+                  <option value="min">minutos</option>
+                </select>
+              </div>
             </Field>
-            <Field label="Jitter aleatório (min)">
-              <input
-                type="number"
-                name="sendJitterMinutes"
-                min={0}
-                defaultValue={settings.sendJitterMinutes}
-                className={ui.input}
-              />
+            <Field label="Variação aleatória (para mais ou para menos)">
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  name="sendJitter"
+                  min={0}
+                  defaultValue={jitter.value}
+                  className={`${ui.input} flex-1`}
+                />
+                <select
+                  name="sendJitterUnit"
+                  defaultValue={jitter.unit}
+                  className={`${ui.input} w-32`}
+                >
+                  <option value="s">segundos</option>
+                  <option value="min">minutos</option>
+                </select>
+              </div>
             </Field>
           </div>
-          <label className="mt-4 flex items-center gap-2 text-sm text-ink">
-            <input
-              type="checkbox"
-              name="autoApprove"
-              defaultChecked={settings.autoApprove}
-              className="h-4 w-4 rounded border-border bg-elevated accent-accent"
-            />
-            Aprovação automática (envia sem passar pela fila de aprovação)
-          </label>
+          <p className="mt-3 text-xs text-mute">
+            Hoje: 1 mensagem a cada{" "}
+            <strong className="text-ink">
+              {formatDuration(settings.sendIntervalSeconds)}
+            </strong>
+            {settings.sendJitterSeconds > 0
+              ? ` (variando até ${formatDuration(settings.sendJitterSeconds)} para mais ou para menos)`
+              : ""}
+            . Mínimo permitido: 5 segundos.
+          </p>
+          <p className="mt-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-ink/90">
+            <strong>Atenção:</strong> intervalos curtos (poucos segundos ou
+            poucos minutos) servem para <strong>teste</strong>. Deixar assim no
+            dia a dia faz o WhatsApp enxergar comportamento de robô e{" "}
+            <strong>aumenta muito o risco de banimento do número</strong>. Para
+            operar, volte para algo entre 30 e 60 minutos.
+          </p>
+
+          <div className="mt-5 border-t border-border pt-4">
+            <label className="flex items-start gap-2 text-sm text-ink">
+              <input
+                type="checkbox"
+                name="autoApprove"
+                defaultChecked={settings.autoApprove}
+                className="mt-0.5 h-4 w-4 rounded border-border bg-elevated accent-accent"
+              />
+              <span>
+                Aprovação automática
+                <span className="mt-1 block text-xs text-mute">
+                  Ligada, toda mensagem nova já entra pronta para envio e a fila
+                  de Aprovação fica vazia — nada espera clique. Ao ligar, os
+                  rascunhos que já estão na fila também são liberados.
+                </span>
+              </span>
+            </label>
+            <p className="mt-3 text-xs text-mute">
+              Situação atual:{" "}
+              <strong className="text-ink">
+                {settings.autoApprove
+                  ? "as mensagens são enviadas sem aprovação manual."
+                  : "cada mensagem precisa ser aprovada na tela Aprovação antes de sair."}
+              </strong>
+            </p>
+          </div>
         </section>
 
         <section className={ui.card}>

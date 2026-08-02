@@ -3,7 +3,7 @@ import Link from "next/link";
 import { approveMessage, rejectMessage, updateMessage } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
 import { SetupHint } from "@/components/setup-hint";
-import { tryAgent, type Message } from "@/lib/agent-api";
+import { tryAgent, type AgentSettings, type Message } from "@/lib/agent-api";
 import { formatDateTime } from "@/lib/format";
 import { ui } from "@/lib/ui";
 
@@ -12,7 +12,11 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Aprovação" };
 
 export default async function ApprovalPage() {
-  const result = await tryAgent<Message[]>("/messages?status=draft");
+  const [result, settings] = await Promise.all([
+    tryAgent<Message[]>("/messages?status=draft"),
+    tryAgent<AgentSettings>("/settings"),
+  ]);
+  const autoApprove = settings.ok ? settings.data.autoApprove : false;
 
   if (!result.ok) {
     return (
@@ -31,6 +35,19 @@ export default async function ApprovalPage() {
         title="Fila de aprovação"
         description="Revise, edite e aprove as mensagens em rascunho antes do envio aos grupos."
       />
+
+      {autoApprove ? (
+        <p className="rounded-xl border border-accent/40 bg-accent/10 p-4 text-sm text-ink/90">
+          <strong>Aprovação automática ligada.</strong> As mensagens novas já
+          entram aprovadas e vão para o grupo sem passar por aqui — esta tela
+          fica vazia de propósito. Para voltar a revisar uma a uma, desligue a
+          chave em{" "}
+          <Link href="/configuracoes" className="text-accent hover:underline">
+            Configurações
+          </Link>
+          .
+        </p>
+      ) : null}
 
       {drafts.length === 0 ? (
         <div className={ui.empty}>

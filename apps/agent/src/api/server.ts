@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { z } from "zod";
-import { asc, desc, eq, inArray } from "drizzle-orm";
+import { asc, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   manualUrlsSchema,
   messagePatchSchema,
@@ -19,7 +19,13 @@ import {
   tryRefreshSessionHeadless,
 } from "../affiliate/index.js";
 import { EvolutionSender, parseEvolutionWebhook } from "../whatsapp/index.js";
-import { processManualUrls, runCollection } from "../pipeline.js";
+import {
+  approveDraftMessages,
+  dispatchDueMessages,
+  processManualUrls,
+  runCollection,
+} from "../pipeline.js";
+import { getDispatchState } from "../scheduler/state.js";
 import { getSettings, patchSettings } from "../settings.js";
 import { getCredentialsStatus, resolveEnv, saveSecrets, type StoredSecrets } from "../secrets.js";
 import { buildAuthUrl, exchangeCode, redirectUri } from "../oauth.js";
@@ -46,6 +52,36 @@ function publicAgentBase(agentEnv: AgentEnv): string | null {
 export interface ServerCtx {
   env: AgentEnv;
   db: Db;
+}
+
+/** Segundos → texto curto em português ("45 min", "30 s", "1 h 30 min"). */
+function describeSeconds(total: number): string {
+  if (total < 60) return `${total} s`;
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  if (minutes < 60) {
+    return seconds === 0 ? `${minutes} min` : `${minutes} min ${seconds} s`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
+}
+
+/** "HH:MM" do relógio local do agente (mesmo relógio usado na janela de envio). */
+function localClock(now = new Date()): string {
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
+
+/** Mesma regra do pipeline: janela pode cruzar a meia-noite. */
+function withinWindowNow(start: string, end: string, now = new Date()): boolean {
+  const toMinutes = (hhmm: string): number => {
+    const [h = 0, m = 0] = hhmm.split(":").map(Number);
+    return h * 60 + m;
+  };
+  const cur = now.getHours() * 60 + now.getMinutes();
+  const s = toMinutes(start);
+  const e = toMinutes(end);
+  return s <= e ? cur >= s && cur <= e : cur >= s || cur <= e;
 }
 
 /** Página HTML simples exibida ao final do fluxo OAuth (sucesso ou erro). */
@@ -107,7 +143,7 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
 
   // --- Visão geral para o dashboard ---
   app.get("/overview", async () => {
-    const [settings, whatsapp, affiliateSession, nextMessages, lastSent, lastRuns] =
+    const [settings, whatsapp, affiliateSession, nextMessages, lastSent, lastRuns, draftCount] =
       await Promise.all([
         getSettings(db),
         sender.getStatus().catch(() => "disconnected" as const),
@@ -125,8 +161,30 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
           .orderBy(desc(messages.sentAt))
           .limit(10),
         db.select().from(runs).orderBy(desc(runs.id)).limit(10),
+        db
+          .select({ n: sql<number>`count(*)` })
+          .from(messages)
+          .where(eq(messages.status, "draft")),
       ]);
-    return { whatsapp, affiliateSession, paused: settings.paused, nextMessages, lastSent, lastRuns };
+    return {
+      whatsapp,
+      affiliateSession,
+      paused: settings.paused,
+      autoApprove: settings.autoApprove,
+      sendIntervalSeconds: settings.sendIntervalSeconds,
+      sendJitterSeconds: settings.sendJitterSeconds,
+      sendWindowStart: settings.sendWindowStart,
+      sendWindowEnd: settings.sendWindowEnd,
+      // Relógio do agente: a janela de envio usa o fuso do CONTAINER, não o do
+      // navegador. Mostrar aqui evita o clássico "está dentro do horário, por
+      // que não enviou?" quando o servidor está em UTC.
+      agentTime: new Date().toISOString(),
+      dispatch: getDispatchState(),
+      pendingApproval: draftCount[0]?.n ?? 0,
+      nextMessages,
+      lastSent,
+      lastRuns,
+    };
   });
 
   // --- Diagnóstico: "está tudo pronto para operar?" ---
@@ -135,7 +193,7 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
   // texto do que fazer, para o operador resolver sem precisar de suporte.
   app.get("/diagnostics", async () => {
     const resolved = await resolveEnv(db, env);
-    const [waStatus, affiliate, credentials, enabledGroups, settings, evolution] =
+    const [waStatus, affiliate, credentials, enabledGroups, settings, evolution, draftCount] =
       await Promise.all([
         sender.getStatus().catch(() => "disconnected" as const),
         getSessionStatus(resolved).catch(() => "unknown" as const),
@@ -143,7 +201,12 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
         db.select().from(groups).where(eq(groups.enabled, true)),
         getSettings(db),
         sender.ping(),
+        db
+          .select({ n: sql<number>`count(*)` })
+          .from(messages)
+          .where(eq(messages.status, "draft")),
       ]);
+    const pendingDrafts = draftCount[0]?.n ?? 0;
 
     // ok: pronto | warn: funciona, mas atenção | error: bloqueia a operação
     const checks = [
@@ -228,9 +291,38 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
         status: settings.paused ? "warn" : "ok",
         detail: settings.paused
           ? "O agente está pausado — nada será enviado até retomar."
-          : `Enviando entre ${settings.sendWindowStart} e ${settings.sendWindowEnd}.`,
+          : `Enviando entre ${settings.sendWindowStart} e ${settings.sendWindowEnd}, ` +
+            `1 mensagem a cada ${describeSeconds(settings.sendIntervalSeconds)}` +
+            `${settings.sendJitterSeconds > 0 ? ` (± ${describeSeconds(settings.sendJitterSeconds)})` : ""}.`,
         action: settings.paused ? "Clique em Retomar no cartão de Disparos." : null,
         href: "/",
+      },
+      {
+        id: "sendWindow",
+        label: "Horário do agente",
+        status: withinWindowNow(settings.sendWindowStart, settings.sendWindowEnd) ? "ok" : "warn",
+        detail: withinWindowNow(settings.sendWindowStart, settings.sendWindowEnd)
+          ? `Agora são ${localClock()} no servidor — dentro da janela de envio.`
+          : `Agora são ${localClock()} no servidor, fora da janela ${settings.sendWindowStart}–${settings.sendWindowEnd}. Nada sai até voltar para a janela.`,
+        action: withinWindowNow(settings.sendWindowStart, settings.sendWindowEnd)
+          ? null
+          : "Amplie a janela de envio em Configurações ou espere o horário.",
+        href: "/configuracoes",
+      },
+      {
+        id: "approval",
+        label: "Aprovação das mensagens",
+        status: settings.autoApprove || pendingDrafts === 0 ? "ok" : "warn",
+        detail: settings.autoApprove
+          ? "Automática: as mensagens novas já entram prontas para envio."
+          : pendingDrafts > 0
+            ? `${pendingDrafts} mensagem(ns) esperando você aprovar — sem isso nada é enviado.`
+            : "Manual: cada mensagem precisa ser aprovada antes de sair.",
+        action:
+          settings.autoApprove || pendingDrafts === 0
+            ? null
+            : "Vá em Aprovação e aprove, ou ligue a aprovação automática em Configurações.",
+        href: settings.autoApprove ? "/configuracoes" : "/aprovacao",
       },
     ] as const;
 
@@ -386,11 +478,39 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
 
   app.patch("/settings", async (req, reply) => {
     try {
-      return await patchSettings(db, req.body);
+      const before = await getSettings(db);
+      const after = await patchSettings(db, req.body);
+
+      // Ligar a aprovação automática precisa valer para a fila que já existe.
+      // Sem isso os rascunhos criados antes ficavam presos para sempre: o
+      // operador liga a chave, some o botão de aprovar da rotina e nada sai.
+      if (after.autoApprove && !before.autoApprove) {
+        const promoted = await approveDraftMessages(db);
+        if (promoted > 0) {
+          const now = new Date().toISOString();
+          await db.insert(runs).values({
+            job: "auto-approve",
+            startedAt: now,
+            finishedAt: now,
+            ok: true,
+            detail: `aprovação automática ligada — ${promoted} rascunho(s) liberados para envio`,
+          });
+          app.log.info({ promoted }, "aprovação automática ligada — rascunhos aprovados");
+        }
+      }
+      return after;
     } catch (err) {
       if (err instanceof z.ZodError) return reply.code(400).send({ error: err.issues });
       throw err;
     }
+  });
+
+  // --- Disparo manual: envia UMA mensagem agora (botão "Enviar agora") ---
+  // Mesmo caminho do scheduler — inclusive uma mensagem por vez. Serve para o
+  // operador testar sem esperar o próximo tick e ver o motivo quando nada sai.
+  app.post("/dispatch", async () => {
+    const result = await dispatchDueMessages({ ...pipelineCtx, sender });
+    return result;
   });
 
   // --- Credenciais (chave Gemini + API oficial ML), criptografadas no SQLite ---

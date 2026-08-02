@@ -10,7 +10,7 @@
  *
  * Login interativo exige interface gráfica na máquina do AGENTE (não no
  * navegador do dashboard). Em VPS headless sem DISPLAY, não funciona —
- * use renovação headless ou conecte numa máquina com tela e copie a sessão.
+ * use o fluxo “Colar cookies” do dashboard (login no Chrome do operador).
  */
 
 import { dirname, join } from "node:path";
@@ -36,7 +36,7 @@ export function canOpenVisibleBrowser(): boolean {
 
 /** Mensagem amigável quando o login interativo é impossível nesta máquina. */
 export const INTERACTIVE_UNAVAILABLE_MSG =
-  "Este servidor não tem tela gráfica — o login de afiliado abre um navegador na máquina do agente, e numa VPS ninguém vê essa janela. Use “Tentar renovar sessão” se já conectou antes, ou faça o login numa instalação local (com tela) e copie a pasta data/ (affiliate-session.enc + playwright-profile) para a VPS.";
+  "Este servidor não tem tela gráfica — o botão Conectar abriria um navegador no servidor, onde ninguém vê. Em Credenciais, use “Colar cookies da sessão”: faça login no portal no seu Chrome e cole os cookies no painel.";
 
 /** Página do linkbuilder — redireciona para login quando deslogado. */
 const LINKBUILDER_URL = "https://www.mercadolivre.com.br/afiliados/linkbuilder";

@@ -217,6 +217,40 @@ export async function refreshAffiliateSession(
   }
 }
 
+export async function importAffiliateCookies(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const cookies = String(formData.get("cookies") ?? "").trim();
+    if (!cookies) {
+      return actionErr("Cole os cookies no campo antes de salvar.");
+    }
+    const result = await agentFetch<{
+      ok: boolean;
+      error?: string;
+      cookieCount?: number;
+      session?: string;
+    }>("/affiliate/session", {
+      method: "POST",
+      body: JSON.stringify({ cookies }),
+    });
+    revalidatePath("/credenciais");
+    revalidatePath("/");
+    if (result.ok === false) {
+      return actionErr(result.error ?? "Não foi possível importar a sessão.");
+    }
+    const count = result.cookieCount ?? 0;
+    const status =
+      result.session === "valid"
+        ? "Sessão conectada."
+        : "Cookies salvos — o status pode levar alguns segundos para atualizar.";
+    return actionOk(`${status} (${count} cookies).`);
+  } catch (err) {
+    return actionErr(err);
+  }
+}
+
 export async function togglePause(formData: FormData): Promise<ActionResult> {
   try {
     const currentlyPaused = formData.get("paused") === "true";

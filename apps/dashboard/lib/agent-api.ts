@@ -137,9 +137,11 @@ export interface CredentialsStatus {
   affiliateTag: string;
   sensitiveFields: string[];
   /** URL pública do agente para o operador autorizar a API oficial do ML. */
-  mlOAuthStartUrl?: string;
+  mlOAuthStartUrl?: string | null;
   /** redirect_uri a cadastrar no DevCenter do ML. */
-  mlOAuthRedirectUri?: string;
+  mlOAuthRedirectUri?: string | null;
+  /** false quando PUBLIC_URL está vazio — UI não deve mostrar localhost. */
+  publicUrlConfigured?: boolean;
 }
 
 export interface AffiliateLoginState {

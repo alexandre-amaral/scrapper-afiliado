@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { AffiliateConnectActions } from "@/components/affiliate-connect-actions";
+import { AffiliateCookieImport } from "@/components/affiliate-cookie-import";
 import { CredentialsForm } from "@/components/credentials-form";
 import { SetupHint } from "@/components/setup-hint";
 import {
@@ -38,6 +39,7 @@ export default async function CredenciaisPage() {
   const loginRunning = aff?.login.running ?? false;
   // Se o agente ainda não envia o campo (versão antiga), assume GUI disponível.
   const interactiveAvailable = aff?.interactiveAvailable ?? true;
+  const needsSession = affSession !== "valid";
 
   return (
     <div className="space-y-8">
@@ -129,31 +131,22 @@ export default async function CredenciaisPage() {
               </p>
               <p className="mt-2 text-neutral-500">
                 “Tentar renovar sessão” tenta reaproveitar um login antigo sem abrir
-                janela. Use isso se a sessão acabou de expirar.
+                janela. Se o agente estiver num servidor sem tela, use o fluxo de
+                colar cookies abaixo.
               </p>
             </>
           ) : (
             <>
               <p className="text-amber-300">
-                Este agente está em um servidor sem tela. O botão de conectar abre
-                um navegador <strong>no servidor</strong>, não no seu computador —
-                por isso não aparecia nada.
+                Este agente está em um servidor sem tela — o botão Conectar não
+                aparece porque abriria um navegador no servidor, não no seu
+                computador.
               </p>
               <p className="mt-2">
-                Use <strong className="text-neutral-200">Tentar renovar sessão</strong>{" "}
-                se já houve um login antes. Se falhar, faça o login numa instalação
-                local (com tela) e copie a pasta{" "}
-                <code className="rounded bg-neutral-900 px-1 text-xs text-neutral-300">
-                  data/
-                </code>{" "}
-                (<span className="text-neutral-500">
-                  (affiliate-session.enc + playwright-profile)
-                </span>{" "}
-                para a VPS, com a mesma{" "}
-                <code className="rounded bg-neutral-900 px-1 text-xs text-neutral-300">
-                  SESSION_ENCRYPTION_KEY
-                </code>
-                .
+                Use o bloco{" "}
+                <strong className="text-neutral-200">Colar cookies da sessão</strong>{" "}
+                abaixo: login no seu Chrome + exportar cookies. Se já conectou
+                antes, “Tentar renovar sessão” pode bastar.
               </p>
             </>
           )}
@@ -166,6 +159,9 @@ export default async function CredenciaisPage() {
             </p>
           ) : null}
         </div>
+
+        {/* Fluxo principal em VPS; também útil como alternativa com GUI. */}
+        <AffiliateCookieImport emphasized={!interactiveAvailable || needsSession} />
       </section>
 
       {/* ---------- Formulário de chaves ---------- */}
@@ -312,11 +308,21 @@ export default async function CredenciaisPage() {
                 ML no seu navegador e grava o código de renovação no agente. No
                 DevCenter, o redirect URI deve ser exatamente:{" "}
                 <code className="break-all text-neutral-400">
-                  {cred.mlOAuthRedirectUri ?? "(configure PUBLIC_URL no agente)"}
+                  {cred.mlOAuthRedirectUri}
                 </code>
               </p>
             </div>
-          ) : null}
+          ) : (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-200/90">
+              Para autorizar o app do ML pelo navegador, o agente precisa da URL
+              pública HTTPS em{" "}
+              <code className="text-amber-100">PUBLIC_URL</code> (ex.: a mesma
+              do painel). Sem isso o botão de autorizar não aparece — evita
+              apontar para um endereço local inválido em produção. A busca por
+              palavras-chave é opcional; os links de comissão vêm da conta de
+              afiliado acima.
+            </div>
+          )}
         </div>
       </CredentialsForm>
     </div>

@@ -39,7 +39,8 @@ function makePkce(): { verifier: string; challenge: string } {
 
 /** redirect_uri usado no fluxo — deve ser idêntico ao cadastrado no app ML. */
 export function redirectUri(env: AgentEnv): string {
-  const base = env.PUBLIC_URL?.trim() || `http://localhost:${env.AGENT_PORT}`;
+  const pub = env.PUBLIC_URL?.trim();
+  const base = pub || `http://localhost:${env.AGENT_PORT}`;
   return `${base.replace(/\/+$/, "")}/oauth/callback`;
 }
 
@@ -48,6 +49,19 @@ export async function buildAuthUrl(db: Db, env: AgentEnv): Promise<string> {
   const resolved = await resolveEnv(db, env);
   if (!resolved.ML_CLIENT_ID) {
     throw new Error("ML_CLIENT_ID não configurado — cadastre o app no DevCenter e salve em Credenciais.");
+  }
+  if (!resolved.PUBLIC_URL?.trim()) {
+    // Em VPS sem PUBLIC_URL o redirect cairia em localhost e quebraria o OAuth
+    // no navegador do operador. Local (pnpm dev) continua ok via fallback.
+    const isLikelyRemote =
+      process.platform === "linux" &&
+      !process.env.DISPLAY &&
+      !process.env.WAYLAND_DISPLAY;
+    if (isLikelyRemote) {
+      throw new Error(
+        "PUBLIC_URL não está configurada no agente. Defina a URL pública HTTPS (a mesma do painel) no .env do agente para o OAuth do Mercado Livre funcionar.",
+      );
+    }
   }
   const { verifier, challenge } = makePkce();
   pendingVerifier = verifier; // guardado para a troca do code

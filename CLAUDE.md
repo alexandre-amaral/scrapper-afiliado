@@ -46,8 +46,8 @@ O `AGENT_TOKEN` precisa ser **idêntico** nos dois; se divergir, o dashboard tom
 401 em tudo e as telas ficam vazias sem explicação. `start.sh`/`start.cmd`
 checam isso antes de subir. Um `.env` na raiz não é lido por ninguém.
 
-O `apps/dashboard/.env.example` versionado tem `AGENT_URL=http://localhost:3333`,
-mas o valor correto (o que o `setup.sh` grava) é `:3001`.
+O `apps/dashboard/.env.example` versionado tem `AGENT_URL=http://localhost:3001`,
+e o valor que o `setup.sh` grava também é `:3001`.
 
 ## Arquitetura
 
@@ -139,7 +139,9 @@ Quando expira, lança `SessionExpiredError` e o pipeline tenta **uma vez**
 
 O login interativo (`POST /affiliate/connect`) abre um Chromium **visível** via
 Playwright para o operador fazer login + 2FA — só funciona em máquina com sessão
-gráfica, não em VPS headless.
+gráfica, não em VPS headless. Em VPS, o fluxo principal é
+`POST /affiliate/session`: o operador loga no Chrome dele, exporta cookies
+(Cookie-Editor) e cola no dashboard.
 
 ### Camadas trocáveis por design
 

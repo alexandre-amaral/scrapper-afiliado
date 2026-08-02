@@ -13,6 +13,7 @@ import { groups, messages, offers, runs, type Db } from "@ml-agent/db";
 import {
   canOpenVisibleBrowser,
   getSessionStatus,
+  importAffiliateSession,
   INTERACTIVE_UNAVAILABLE_MSG,
   refreshSessionInteractive,
   tryRefreshSessionHeadless,
@@ -32,11 +33,14 @@ type AffiliateLoginState = {
   error: string | null;
 };
 
-/** Base pública do agente (OAuth no navegador do operador). */
-function publicAgentBase(agentEnv: AgentEnv): string {
+/**
+ * Base pública do agente (OAuth no navegador do operador).
+ * Sem PUBLIC_URL devolve null — a UI NÃO deve inventar localhost em produção.
+ */
+function publicAgentBase(agentEnv: AgentEnv): string | null {
   const pub = agentEnv.PUBLIC_URL?.trim();
-  if (pub) return pub.replace(/\/+$/, "");
-  return `http://localhost:${agentEnv.AGENT_PORT}`;
+  if (!pub) return null;
+  return pub.replace(/\/+$/, "");
 }
 
 export interface ServerCtx {
@@ -172,18 +176,14 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
           affiliate === "valid"
             ? "Sessão do portal válida."
             : affiliate === "expired"
-              ? canOpenVisibleBrowser()
-                ? "A sessão expirou — links de afiliado não serão gerados."
-                : "A sessão expirou. Nesta VPS sem tela, use “Tentar renovar sessão” em Credenciais; se falhar, é preciso copiar a sessão de uma máquina com tela."
-              : canOpenVisibleBrowser()
-                ? "Não foi possível confirmar a sessão."
-                : "Sessão ausente. Nesta VPS o botão “Conectar” não abre navegador — renove a sessão ou copie a pasta data/ de um login feito no computador.",
+              ? "A sessão expirou — links de afiliado não serão gerados."
+              : "Sessão do portal ausente ou não confirmada.",
         action:
           affiliate === "valid"
             ? null
             : canOpenVisibleBrowser()
-              ? "Vá em Credenciais e clique em Conectar conta de afiliado."
-              : "Vá em Credenciais e use “Tentar renovar sessão” (ou copie a sessão de um PC com tela).",
+              ? "Vá em Credenciais e clique em Conectar conta de afiliado (ou cole os cookies da sessão)."
+              : "Vá em Credenciais e use “Colar cookies da sessão”: login no seu Chrome + exportar cookies para o painel.",
         href: "/credenciais",
       },
       {
@@ -407,11 +407,13 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
   app.get("/credentials", async () => {
     const status = await getCredentialsStatus(db, env);
     const base = publicAgentBase(env);
+    // Sem PUBLIC_URL não inventamos localhost na UI — o operador veria um
+    // redirect URI inválido em produção.
     return {
       ...status,
-      // URL que o operador abre no navegador para autorizar a API oficial do ML.
-      mlOAuthStartUrl: `${base}/oauth/start`,
-      mlOAuthRedirectUri: redirectUri(env),
+      mlOAuthStartUrl: base ? `${base}/oauth/start` : null,
+      mlOAuthRedirectUri: base ? `${base}/oauth/callback` : null,
+      publicUrlConfigured: Boolean(base),
     };
   });
 
@@ -423,8 +425,9 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
     const base = publicAgentBase(env);
     return {
       ...status,
-      mlOAuthStartUrl: `${base}/oauth/start`,
-      mlOAuthRedirectUri: redirectUri(env),
+      mlOAuthStartUrl: base ? `${base}/oauth/start` : null,
+      mlOAuthRedirectUri: base ? `${base}/oauth/callback` : null,
+      publicUrlConfigured: Boolean(base),
     };
   });
 
@@ -524,8 +527,8 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
         return reply.code(409).send({
           ok: false,
           error: canOpenVisibleBrowser()
-            ? "Não deu para renovar sozinho — a sessão pediu login de novo. Clique em Conectar conta de afiliado e complete o login na janela que abrir."
-            : "Não deu para renovar sozinho nesta VPS. É preciso fazer o login numa máquina com tela e copiar a pasta data/ (affiliate-session.enc e playwright-profile) para o servidor, usando a mesma SESSION_ENCRYPTION_KEY.",
+            ? "Não deu para renovar sozinho — a sessão pediu login de novo. Clique em Conectar conta de afiliado ou cole cookies frescos em Credenciais."
+            : "Não deu para renovar sozinho. Em Credenciais, use “Colar cookies da sessão”: faça login no portal no seu Chrome, exporte os cookies e cole no painel.",
         });
       }
       return {
@@ -536,6 +539,35 @@ export async function buildServer(ctx: ServerCtx): Promise<FastifyInstance> {
       const message = err instanceof Error ? err.message : String(err);
       app.log.error({ err }, "renovação headless de afiliado falhou");
       return reply.code(500).send({ ok: false, error: `Falha ao renovar a sessão: ${message}` });
+    }
+  });
+
+  // Importação de cookies colados no dashboard (fluxo principal em VPS).
+  app.post("/affiliate/session", async (req, reply) => {
+    const bodySchema = z.object({
+      cookies: z.string().min(1, "Cole os cookies no campo."),
+    });
+    const parsed = bodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        ok: false,
+        error: parsed.error.issues[0]?.message ?? "Texto de cookies inválido.",
+      });
+    }
+    try {
+      const resolved = await resolveEnv(db, env);
+      const result = await importAffiliateSession(resolved, parsed.data.cookies);
+      if (!result.ok) {
+        return reply.code(400).send(result);
+      }
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      app.log.error({ err }, "importação de sessão de afiliado falhou");
+      return reply.code(500).send({
+        ok: false,
+        error: `Não foi possível salvar a sessão: ${message}`,
+      });
     }
   });
 

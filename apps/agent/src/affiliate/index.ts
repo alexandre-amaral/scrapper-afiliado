@@ -17,3 +17,9 @@ export {
   refreshSessionInteractive,
   tryRefreshSessionHeadless,
 } from "./portal-login.js";
+export {
+  parseCookiePaste,
+  importAffiliateSession,
+  seedPlaywrightProfile,
+  type ImportSessionResult,
+} from "./cookie-import.js";

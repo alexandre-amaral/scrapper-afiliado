@@ -117,15 +117,12 @@ precisa ser feito uma vez.
 #### Se o agente está numa VPS (servidor sem tela)
 
 O botão **Conectar** não abre janela no seu computador — ele tentaria abrir
-no servidor, onde ninguém vê. Por isso o painel esconde esse botão e mostra
-**Tentar renovar sessão**.
+no servidor, onde ninguém vê. Por isso o painel esconde esse botão.
 
-- Se já houve um login antes e a sessão só expirou, use **Tentar renovar
-  sessão**.
-- Se nunca conectou (ou a renovação falhar): faça o login numa instalação
-  **local com tela**, depois copie a pasta `data/` do agente
-  (`affiliate-session.enc` e `playwright-profile`) para a VPS, com a **mesma**
-  `SESSION_ENCRYPTION_KEY`.
+1. Se já houve login e a sessão só expirou, tente **Tentar renovar sessão**.
+2. Caso contrário (fluxo principal): use **Colar cookies da sessão** em
+   Credenciais — faça login no portal no seu Chrome, exporte com a extensão
+   Cookie-Editor (JSON) e cole no painel. Não precisa de SSH nem copiar pastas.
 
 ### 3.3 Informar a etiqueta de afiliado
 
@@ -263,8 +260,8 @@ Quase sempre é a **etiqueta de afiliado** vazia. Confira em **Credenciais**
 O login no Mercado Livre venceu. Em **Credenciais**:
 
 - Com tela (local): **Conectar conta de afiliado** → faça login de novo.
-- Em VPS sem tela: **Tentar renovar sessão**. Se falhar, copie a pasta
-  `data/` de um login feito no computador (veja [3.2](#32-conectar-a-conta-de-afiliado)).
+- Em VPS sem tela: **Tentar renovar sessão**; se falhar, use **Colar cookies
+  da sessão** (login no seu Chrome + Cookie-Editor → cole no painel).
 
 ### As mensagens não são enviadas
 

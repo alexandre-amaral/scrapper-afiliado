@@ -19,7 +19,7 @@ WORKDIR /app
 # build: instala as dependências do workspace e compila core, db e agent
 # ----------------------------------------------------------------------------
 FROM base AS build
-# O download dos browsers acontece só no estágio de runtime
+# O download dos browsers acontece só no estágio de runtime — aqui só o npm.
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 # 1) Só os manifests primeiro — assim a camada do `pnpm install` fica em cache
@@ -28,7 +28,8 @@ COPY pnpm-lock.yaml* pnpm-workspace.yaml package.json turbo.json tsconfig.base.j
 COPY apps/agent/package.json apps/agent/
 COPY packages/core/package.json packages/core/
 COPY packages/db/package.json packages/db/
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile \
+    && node -e "require('fs').writeFileSync('/playwright-version', require('playwright/package.json').version)"
 
 # 2) Código-fonte e build (turbo resolve a ordem core -> db -> agent)
 COPY apps/agent apps/agent
@@ -43,7 +44,7 @@ RUN pnpm turbo run build --filter=@ml-agent/agent...
 # adicionar aqui um `pnpm install --prod --frozen-lockfile --ignore-scripts`.
 
 # ----------------------------------------------------------------------------
-# runtime: node:22-slim + `playwright install --with-deps chromium`
+# runtime: node:22-slim + Chromium do Playwright na MESMA versão do lockfile
 #
 # Por que NÃO usar a imagem mcr.microsoft.com/playwright:
 #   1. ABI nativa: better-sqlite3 baixa um binário pré-compilado para a versão
@@ -51,15 +52,13 @@ RUN pnpm turbo run build --filter=@ml-agent/agent...
 #      o Node dela própria — se a versão divergir, o binário nativo quebra em
 #      runtime. Usando node:22-slim nos dois estágios, build e runtime são
 #      sempre idênticos.
-#   2. Versão do browser: `npx playwright install` baixa exatamente a revisão
-#      de Chromium que o pacote `playwright` do package.json espera; a imagem
-#      da Microsoft fixa browser + Node por tag e pode divergir silenciosamente
-#      do lockfile a cada bump de dependência.
+#   2. Versão do browser: o Chromium precisa bater com a revisão esperada pelo
+#      pacote `playwright` instalado (hoje 1.61.x → chromium_headless_shell-1228).
+#      Fixar uma versão antiga no Dockerfile (ex.: 1.52) deixa o browser errado
+#      e o runtime falha com "Executable doesn't exist".
 #
-# ATENÇÃO: mantenha a versão fixada abaixo em sincronia com a dependência
-# "playwright" de apps/agent/package.json (hoje ^1.52.0). Fixar a versão aqui
-# (em vez de usar o node_modules copiado) mantém esta camada — ~300 MB de
-# browser + libs de sistema — em cache entre rebuilds do código.
+# A versão vem de /playwright-version (gravado no `pnpm install`). A camada do
+# browser só é reconstruída quando o lockfile muda a versão do Playwright.
 # ----------------------------------------------------------------------------
 FROM node:22-slim AS runtime
 ENV NODE_ENV=production \
@@ -68,9 +67,15 @@ ENV NODE_ENV=production \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN corepack enable
 
-# Chromium + dependências de sistema, num caminho legível por qualquer usuário
-RUN npx -y playwright@1.52.0 install --with-deps chromium \
+# Chromium + headless_shell + deps de sistema, no caminho que o Playwright
+# procura em runtime (PLAYWRIGHT_BROWSERS_PATH).
+COPY --from=build /playwright-version /playwright-version
+RUN VERSION="$(cat /playwright-version)" \
+    && echo "Instalando Playwright browsers @${VERSION}" \
+    && npx -y "playwright@${VERSION}" install --with-deps chromium \
     && chmod -R a+rX /ms-playwright \
+    && test -d /ms-playwright \
+    && find /ms-playwright -type f \( -name chrome-headless-shell -o -name chrome -o -name chromium \) | head -20 \
     && rm -rf /var/lib/apt/lists/* /root/.npm /root/.cache
 
 WORKDIR /app

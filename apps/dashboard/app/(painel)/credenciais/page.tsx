@@ -47,9 +47,10 @@ export default async function CredenciaisPage() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Credenciais</h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Chaves de API e conexão da conta de afiliado. Tudo é guardado
-          criptografado no agente — os valores sensíveis nunca voltam para esta
-          tela.
+          Duas coisas diferentes: a conta de afiliado (para gerar links com
+          comissão) e a API oficial (só se quiser busca automática por
+          palavras-chave). Tudo fica criptografado no agente — valores
+          sensíveis nunca voltam para esta tela.
         </p>
       </div>
 
@@ -58,8 +59,13 @@ export default async function CredenciaisPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h2 className="text-sm font-semibold text-neutral-200">
-              Conta de afiliado do Mercado Livre
+              1. Conta de afiliado (links com comissão)
             </h2>
+            <p className="mt-1 max-w-xl text-xs text-neutral-500">
+              É o login no portal de afiliados. Sem essa sessão, o agente não
+              consegue transformar um produto em link que paga comissão. Não
+              tem relação com o “código de renovação da API” abaixo.
+            </p>
             <div className="mt-2 flex items-center gap-2">
               <span
                 className={`inline-block h-2.5 w-2.5 rounded-full ${affLabel.color}`}
@@ -212,17 +218,29 @@ export default async function CredenciaisPage() {
         {/* Mercado Livre API oficial */}
         <div className="space-y-4">
           <h2 className="text-sm font-semibold text-neutral-200">
-            API oficial do Mercado Livre{" "}
+            2. Busca automática na API do Mercado Livre{" "}
             <StatusBadge configured={cred.ml.source !== "none"} source={cred.ml.source} />
           </h2>
-          <p className="text-xs text-neutral-500">
-            Necessária para a fonte automática por palavras-chave. Crie um app no
-            DevCenter do ML, salve Client ID e Secret abaixo, e autorize com o
-            botão — isso gera o “código de renovação” automaticamente.
-          </p>
+          <div className="rounded-lg border border-neutral-800 bg-neutral-950/50 p-3 text-xs text-neutral-400">
+            <p>
+              <strong className="font-medium text-neutral-200">É opcional.</strong>{" "}
+              Serve só para o agente procurar ofertas sozinho por palavras-chave
+              na API oficial. Se você cola URLs na mão ou usa a coleta pela
+              página pública (scraper), pode deixar tudo desta seção em branco —
+              os links de comissão continuam vindo da conta de afiliado acima.
+            </p>
+            <p className="mt-2 text-neutral-500">
+              Se quiser a busca por palavras-chave: crie um app no DevCenter do
+              ML, salve Client ID e Secret, e use o botão “Autorizar app” — ele
+              grava o código de renovação sozinho.
+            </p>
+          </div>
 
           <div>
-            <label className="text-xs font-medium text-neutral-400">Client ID</label>
+            <label className="text-xs font-medium text-neutral-400">
+              Client ID{" "}
+              <span className="font-normal text-neutral-600">· opcional</span>
+            </label>
             <input
               type="text"
               name="mlClientId"
@@ -235,6 +253,7 @@ export default async function CredenciaisPage() {
           <div>
             <label className="text-xs font-medium text-neutral-400">
               Client Secret{" "}
+              <span className="font-normal text-neutral-600">· opcional</span>{" "}
               {cred.ml.clientSecretConfigured ? (
                 <span className="text-green-500">✓ salvo</span>
               ) : null}
@@ -253,14 +272,17 @@ export default async function CredenciaisPage() {
           <div>
             <label className="text-xs font-medium text-neutral-400">
               Código de renovação da API{" "}
+              <span className="font-normal text-neutral-600">· opcional</span>{" "}
               {cred.ml.refreshTokenConfigured ? (
                 <span className="text-green-500">✓ salvo</span>
               ) : null}
             </label>
             <p className="mt-0.5 text-xs text-neutral-500">
-              Antes chamado “refresh token”. É o que o Mercado Livre usa para
-              manter a busca automática de ofertas ligada sem você entrar de novo.
-              Prefira o botão “Autorizar app” abaixo em vez de colar na mão.
+              <strong className="font-medium text-neutral-300">É obrigatório?</strong>{" "}
+              Não, na maioria dos casos. Só é necessário se você ativar a busca
+              automática por palavras-chave na API. Não é o login da conta de
+              afiliado e não gera link de comissão. Prefira o botão “Autorizar
+              app” em vez de colar na mão.
             </p>
             <input
               type="password"
@@ -269,7 +291,7 @@ export default async function CredenciaisPage() {
               placeholder={
                 cred.ml.refreshTokenConfigured
                   ? "•••••••• (vazio p/ manter)"
-                  : "só se for colar manualmente"
+                  : "deixe vazio se não usa a API"
               }
               className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600"
             />
@@ -286,8 +308,9 @@ export default async function CredenciaisPage() {
                 Autorizar app do Mercado Livre
               </a>
               <p className="mt-2 text-xs text-neutral-500">
-                Abre a tela de permissão do ML no seu navegador e grava o código de
-                renovação no agente. No DevCenter, o redirect URI deve ser exatamente:{" "}
+                Só use se quiser a busca por palavras-chave. Abre a permissão do
+                ML no seu navegador e grava o código de renovação no agente. No
+                DevCenter, o redirect URI deve ser exatamente:{" "}
                 <code className="break-all text-neutral-400">
                   {cred.mlOAuthRedirectUri ?? "(configure PUBLIC_URL no agente)"}
                 </code>

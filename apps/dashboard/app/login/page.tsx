@@ -6,22 +6,24 @@ export const metadata: Metadata = { title: "Entrar" };
 
 export default function LoginPage() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-neutral-950 p-6">
+    <main className="flex min-h-screen items-center justify-center bg-bg p-6">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <h1 className="text-lg font-semibold tracking-tight text-neutral-100">
+          <p className="font-display text-2xl font-semibold tracking-tight text-ink">
             Agente ML Afiliados
-          </h1>
-          <p className="mt-1 text-sm text-neutral-500">
+          </p>
+          <p className="mt-2 text-sm text-mute">
             Digite a senha para entrar no painel
           </p>
         </div>
 
-        <Suspense>
-          <FormularioLogin />
-        </Suspense>
+        <div className="rounded-xl border border-border bg-surface p-6">
+          <Suspense>
+            <FormularioLogin />
+          </Suspense>
+        </div>
 
-        <p className="mt-6 text-center text-xs text-neutral-600">
+        <p className="mt-6 text-center text-xs text-mute">
           Perdeu a senha? Peça para quem instalou o agente.
         </p>
       </div>

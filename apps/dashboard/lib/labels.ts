@@ -9,11 +9,11 @@ export const whatsappLabels: Record<WhatsAppStatus, string> = {
 };
 
 export const whatsappColors: Record<WhatsAppStatus, string> = {
-  connected: "bg-emerald-500",
-  connecting: "bg-amber-500",
-  disconnected: "bg-neutral-500",
-  qr: "bg-sky-500",
-  banned: "bg-red-500",
+  connected: "bg-success",
+  connecting: "bg-warning",
+  disconnected: "bg-mute",
+  qr: "bg-accent",
+  banned: "bg-danger",
 };
 
 export const affiliateLabels: Record<AffiliateSessionStatus, string> = {
@@ -23,7 +23,7 @@ export const affiliateLabels: Record<AffiliateSessionStatus, string> = {
 };
 
 export const affiliateColors: Record<AffiliateSessionStatus, string> = {
-  valid: "bg-emerald-500",
-  expired: "bg-red-500",
-  unknown: "bg-neutral-500",
+  valid: "bg-success",
+  expired: "bg-danger",
+  unknown: "bg-mute",
 };

@@ -17,15 +17,18 @@ export async function PausedBanner() {
   if (!result.ok || !result.data.paused) return null;
 
   return (
-    <div className="border-b border-amber-800/60 bg-amber-950/60">
+    <div className="border-b border-warning/40 bg-warning/10">
       <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 px-6 py-3 md:px-10">
         <div className="flex items-center gap-2.5">
-          <span className="text-base leading-none">⏸️</span>
+          <span
+            className="inline-block h-2.5 w-2.5 shrink-0 rounded-full bg-warning"
+            aria-hidden
+          />
           <div>
-            <p className="text-sm font-semibold text-amber-100">
+            <p className="text-sm font-semibold text-warning">
               Agente pausado — nenhuma mensagem está sendo enviada
             </p>
-            <p className="text-xs text-amber-200/70">
+            <p className="text-xs text-warning/70">
               A pausa pode ter sido automática, após uma queda de conexão do
               WhatsApp.
             </p>
@@ -35,7 +38,7 @@ export async function PausedBanner() {
           <input type="hidden" name="paused" value="true" />
           <button
             type="submit"
-            className="rounded-lg bg-amber-200 px-4 py-1.5 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-100"
+            className="rounded-lg bg-warning px-4 py-1.5 text-sm font-semibold text-bg transition-colors hover:brightness-110"
           >
             Retomar envios
           </button>

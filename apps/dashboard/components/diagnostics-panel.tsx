@@ -10,27 +10,26 @@ import type { Diagnostics, CheckStatus } from "@/lib/agent-api";
  */
 
 const dotColor: Record<CheckStatus, string> = {
-  ok: "bg-emerald-500",
-  warn: "bg-amber-500",
-  error: "bg-red-500",
+  ok: "bg-success",
+  warn: "bg-warning",
+  error: "bg-danger",
 };
 
 const textColor: Record<CheckStatus, string> = {
-  ok: "text-neutral-300",
-  warn: "text-amber-200",
-  error: "text-red-200",
+  ok: "text-ink",
+  warn: "text-warning",
+  error: "text-danger",
 };
 
 export function DiagnosticsPanel({ diagnostics }: { diagnostics: Diagnostics }) {
   const { ready, errors, warnings, checks } = diagnostics;
   const pending = checks.filter((c) => c.status !== "ok");
 
-  // Caminho feliz: uma linha discreta confirmando que está tudo certo.
   if (ready && warnings === 0) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-emerald-900/50 bg-emerald-950/30 px-4 py-3">
-        <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
-        <p className="text-sm font-medium text-emerald-200">
+      <div className="flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-4 py-3">
+        <span className="inline-block h-2.5 w-2.5 rounded-full bg-success" />
+        <p className="text-sm font-medium text-success">
           Tudo pronto — o agente está operando normalmente.
         </p>
       </div>
@@ -43,16 +42,21 @@ export function DiagnosticsPanel({ diagnostics }: { diagnostics: Diagnostics }) 
     <div
       className={`rounded-xl border p-5 ${
         isBlocking
-          ? "border-red-900/60 bg-red-950/30"
-          : "border-amber-900/60 bg-amber-950/20"
+          ? "border-danger/40 bg-danger/10"
+          : "border-warning/40 bg-warning/10"
       }`}
     >
       <div className="mb-4 flex items-start gap-3">
-        <span className="mt-1 text-lg leading-none">{isBlocking ? "⚠️" : "ℹ️"}</span>
+        <span
+          className={`mt-1.5 inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
+            isBlocking ? "bg-danger" : "bg-warning"
+          }`}
+          aria-hidden
+        />
         <div>
           <p
             className={`text-sm font-semibold ${
-              isBlocking ? "text-red-100" : "text-amber-100"
+              isBlocking ? "text-danger" : "text-warning"
             }`}
           >
             {isBlocking
@@ -61,7 +65,7 @@ export function DiagnosticsPanel({ diagnostics }: { diagnostics: Diagnostics }) 
                 : `Faltam ${errors} configurações para funcionar`
               : "Funcionando, mas com pontos de atenção"}
           </p>
-          <p className="mt-0.5 text-xs text-neutral-400">
+          <p className="mt-0.5 text-xs text-mute">
             {isBlocking
               ? "Enquanto isso não for resolvido, nenhuma mensagem será enviada."
               : "O agente opera assim, mas vale revisar os itens abaixo."}
@@ -79,11 +83,11 @@ export function DiagnosticsPanel({ diagnostics }: { diagnostics: Diagnostics }) 
               <p className={`text-sm font-medium ${textColor[check.status]}`}>
                 {check.label}
               </p>
-              <p className="text-xs text-neutral-400">{check.detail}</p>
+              <p className="text-xs text-mute">{check.detail}</p>
               {check.action ? (
                 <Link
                   href={check.href}
-                  className="mt-1 inline-block text-xs font-medium text-neutral-200 underline decoration-neutral-600 underline-offset-2 transition-colors hover:decoration-neutral-300"
+                  className="mt-1 inline-block text-xs font-medium text-accent underline decoration-accent/40 underline-offset-2 transition-colors hover:decoration-accent"
                 >
                   {check.action}
                 </Link>
@@ -93,10 +97,9 @@ export function DiagnosticsPanel({ diagnostics }: { diagnostics: Diagnostics }) 
         ))}
       </ul>
 
-      {/* Resumo dos itens que já estão certos, sem ocupar espaço vertical. */}
       {checks.length > pending.length ? (
-        <p className="mt-4 border-t border-neutral-800/60 pt-3 text-xs text-neutral-500">
-          ✓ Em ordem:{" "}
+        <p className="mt-4 border-t border-border/60 pt-3 text-xs text-mute">
+          Em ordem:{" "}
           {checks
             .filter((c) => c.status === "ok")
             .map((c) => c.label)

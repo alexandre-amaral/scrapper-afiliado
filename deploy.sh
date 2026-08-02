@@ -34,6 +34,18 @@ if ! grep -qE '^DASHBOARD_PASSWORD=.+' .env.prod; then
       nano .env.prod        (preencha DASHBOARD_PASSWORD=)"
 fi
 
+# Sem PUBLIC_URL o OAuth do ML cai em localhost e aparece no painel.
+# Se faltar, deriva de DOMINIO (mesmo host do Caddy).
+if ! grep -qE '^PUBLIC_URL=.+' .env.prod; then
+  DOMINIO_VAL="$(grep -E '^DOMINIO=' .env.prod | cut -d= -f2- | tr -d '\r' || true)"
+  if [ -n "${DOMINIO_VAL}" ]; then
+    printf '\n# URL pública HTTPS (OAuth ML) — preenchida automaticamente pelo deploy.sh\nPUBLIC_URL=https://%s\n' "$DOMINIO_VAL" >> .env.prod
+    ok "PUBLIC_URL=https://${DOMINIO_VAL} gravada no .env.prod"
+  else
+    fail "PUBLIC_URL está vazia e DOMINIO também. Defina DOMINIO=seudominio.com no .env.prod."
+  fi
+fi
+
 step "Atualizando o código"
 git pull --ff-only
 ok "código atualizado"
